@@ -52,3 +52,6 @@ Thumbs.db
 # --- Secrets ---
 .env
 *.key
+
+# --- Local temp logs (not deliverables) ---
+docs/_*.txt

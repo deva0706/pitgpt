@@ -17,6 +17,10 @@ keywords = ["llm", "qlora", "peft", "formula1", "smollm2", "fine-tuning"]
 # hard install_requires here to avoid clobbering a hand-tuned GPU environment.
 dependencies = []
 
+[project.optional-dependencies]
+# Dev tooling. Install with: pip install -e ".[dev]"
+dev = ["pytest>=8.0", "black>=24.0", "ruff>=0.5"]
+
 [project.scripts]
 # Thin console entry points mirroring scripts/. Optional but handy after install.
 pitgpt-baseline = "pitgpt.inference.baseline:main"
