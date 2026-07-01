@@ -91,7 +91,10 @@ class GenerationConfig:
     """Decoding defaults for ``model.generate()`` — tuned for factual, on-topic replies."""
 
     max_new_tokens: int = 256
-    temperature: float = 0.7
+    # A 360M model on a focused dataset stays far more factually faithful at low
+    # temperature — higher temps make it hallucinate fluent-but-wrong details.
+    # 0.35 keeps a little variety while reproducing the learned answers reliably.
+    temperature: float = 0.35
     top_p: float = 0.9
     top_k: int = 50
     repetition_penalty: float = 1.15
