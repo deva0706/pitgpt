@@ -30,15 +30,44 @@ logger = logging.getLogger(__name__)
 Message = dict[str, str]
 
 
-def build_messages(user_prompt: str, history: list[Message] | None = None) -> list[Message]:
+def _content_to_text(content) -> str:
+    """Coerce a message ``content`` to a plain string.
+
+    SmolLM2's chat template concatenates ``content`` as a string, but some UIs
+    (notably Gradio 6's chatbot) store content as a *list* of content-parts, e.g.
+    ``[{"type": "text", "text": "…"}]``. Passing that straight to the template
+    raises ``TypeError: can only concatenate str (not "list") to str``. We flatten
+    any such structure back to text so history round-trips safely.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text") or part.get("content") or ""))
+            else:
+                parts.append(str(part))
+        return " ".join(p for p in parts if p).strip()
+    return "" if content is None else str(content)
+
+
+def build_messages(user_prompt, history: list[Message] | None = None) -> list[Message]:
     """Assemble the full message list, prepending the race-engineer system prompt.
 
     ``history`` (if given) is the prior turns so multi-turn context is preserved.
+    All content is normalised to plain strings so the chat template never sees a
+    list (see :func:`_content_to_text`).
     """
     messages: list[Message] = [{"role": "system", "content": settings.model.system_prompt}]
-    if history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": user_prompt})
+    for turn in history or []:
+        role = turn.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = _content_to_text(turn.get("content"))
+        if text:
+            messages.append({"role": role, "content": text})
+    messages.append({"role": "user", "content": _content_to_text(user_prompt)})
     return messages
 
 
