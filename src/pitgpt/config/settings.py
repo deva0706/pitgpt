@@ -105,7 +105,7 @@ class QuantConfig:
     load_in_4bit: bool = True
     bnb_4bit_quant_type: str = "nf4"          # NormalFloat4: optimal for ~normal weights
     bnb_4bit_use_double_quant: bool = True    # quantize the quantization constants too
-    bnb_4bit_compute_dtype: str = "float16"   # matmuls upcast to fp16 on Ampere (RTX 3050)
+    bnb_4bit_compute_dtype: str = "bfloat16"  # bf16 matmuls on Ampere (RTX 3050); no grad scaler needed
 
 
 @dataclass(frozen=True)
@@ -131,10 +131,11 @@ class TrainingConfig:
 
     output_dir: Path = REPO_ROOT / "models" / "adapters" / "pitgpt-lora"
     num_train_epochs: int = 3
-    per_device_train_batch_size: int = 1      # 4 GB VRAM → one sequence at a time
-    gradient_accumulation_steps: int = 16     # effective batch size = 1 * 16 = 16
+    # Smoke test showed ~0.7 GB peak at batch 1, so a 4 GB card has ample room.
+    per_device_train_batch_size: int = 4      # fits comfortably; speeds up the run
+    gradient_accumulation_steps: int = 4      # effective batch size = 4 * 4 = 16
     learning_rate: float = 2e-4               # typical LoRA LR (higher than full-FT)
-    max_seq_length: int = 1024                # truncate long chats to fit memory
+    max_seq_length: int = 512                 # our chats are ~270 tokens; 512 is safe headroom
     warmup_ratio: float = 0.03
     lr_scheduler_type: str = "cosine"
     logging_steps: int = 10
