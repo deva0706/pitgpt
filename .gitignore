@@ -1,0 +1,54 @@
+# =============================================================================
+# PitGPT .gitignore
+# Rule of thumb: commit CODE and CONFIG, ignore DATA, MODELS, and ENV artifacts.
+# =============================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Model weights & adapters (large / regenerable — never commit) ---
+models/adapters/*
+!models/adapters/.gitkeep
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+
+# --- Data (raw is sourced separately; processed is regenerable) ---
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# --- Hugging Face / training caches & logs ---
+.cache/
+hf_cache/
+wandb/
+runs/
+outputs/
+logs/
+*.log
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Secrets ---
+.env
+*.key

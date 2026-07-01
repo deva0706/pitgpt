@@ -1,0 +1,26 @@
+# =============================================================================
+# PitGPT — Offline F1 Race Engineer (SmolLM2-360M + QLoRA)
+# =============================================================================
+# Install with:   pip install -r requirements.txt
+#
+# NOTE on torch: for GPU (CUDA) you should install the CUDA build FIRST, e.g.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# then run `pip install -r requirements.txt` for the rest. The plain torch
+# below is a CPU-friendly fallback so the file installs cleanly everywhere.
+# -----------------------------------------------------------------------------
+
+# --- Core deep learning engine ---
+torch>=2.2.0                 # tensors + autograd; everything below sits on this
+
+# --- Hugging Face ecosystem ---
+transformers>=4.44.0         # loads SmolLM2-360M, tokenizer, chat template, .generate()
+datasets>=2.20.0             # memory-mapped dataset loading & formatting
+accelerate>=0.33.0           # device placement + mixed precision (trainer backend)
+
+# --- Fine-tuning stack (the QLoRA part) ---
+peft>=0.12.0                 # LoRA adapters — trains ~1% of params, freezes the rest
+trl>=0.9.6                   # SFTTrainer — supervised fine-tuning loop w/ chat formatting
+bitsandbytes>=0.43.0         # 4-bit NF4 quantization — the "Q" in QLoRA (see README: Windows note)
+
+# --- User interface ---
+gradio>=4.40.0               # the Race Engineer chat web UI
