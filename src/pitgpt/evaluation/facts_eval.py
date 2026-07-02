@@ -161,7 +161,12 @@ def score_case(case: FactCase, answer: str) -> dict:
     }
 
 
-def run_eval(tag: str = "facts", limit: int | None = None) -> Path:
+def run_eval(tag: str = "facts", limit: int | None = None, use_rag: bool = False) -> Path:
+    """Run the benchmark. ``use_rag=False`` measures closed-book recall from the
+    weights; ``use_rag=True`` measures the full pipeline (live hybrid retrieval
+    over the 2,270-doc corpus + grounded generation). Same cases, same scoring —
+    a true A/B of the two architectures.
+    """
     from pitgpt.inference.engine import generate_reply
     from pitgpt.inference.model_loader import load_for_inference
 
@@ -185,7 +190,7 @@ def run_eval(tag: str = "facts", limit: int | None = None) -> Path:
         for idx, case in enumerate(cases):
             if idx in done:
                 continue
-            answer = generate_reply(model, tokenizer, case.question, use_rag=False)
+            answer = generate_reply(model, tokenizer, case.question, use_rag=use_rag)
             rec = {"idx": idx, "category": case.category, "tier": case.tier,
                    "question": case.question, "gold": case.gold,
                    "answer": answer, **score_case(case, answer)}

@@ -14,5 +14,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--tag", type=str, default="facts")
+    parser.add_argument("--rag", action="store_true",
+                        help="use live hybrid retrieval (end-to-end pipeline)")
     args = parser.parse_args()
-    print(f"Report: {run_eval(tag=args.tag, limit=args.limit)}")
+    print(f"Report: {run_eval(tag=args.tag, limit=args.limit, use_rag=args.rag)}")
