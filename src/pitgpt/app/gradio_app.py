@@ -22,7 +22,7 @@ import logging
 import gradio as gr
 
 from pitgpt.app.model_service import service
-from pitgpt.app.theme import CUSTOM_CSS, EXAMPLE_PROMPTS, HEADER_HTML
+from pitgpt.app.theme import CUSTOM_CSS, EXAMPLE_PROMPTS, build_theme, header_html
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pitgpt.app")
@@ -31,7 +31,7 @@ Message = dict[str, str]
 
 
 def _respond(message: str, history: list[Message]):
-    """Stream a race-engineer reply, updating the chat transcript live.
+    """Stream an enthusiast reply, updating the chat transcript live.
 
     ``history`` is Gradio 'messages' format. We append the user turn and a blank
     assistant turn, then progressively fill the assistant content as tokens
@@ -56,34 +56,38 @@ def build_demo() -> gr.Blocks:
     """Assemble and return the Gradio Blocks app."""
     from pitgpt.config import settings
 
-    status = "fine-tuned adapter loaded" if service.using_adapter else "base model (no adapter)"
+    status = "fine-tuned" if service.using_adapter else "base model"
     # Show the real base model (its short name) instead of a hard-coded label.
     model_name = settings.model.base_model_id.split("/")[-1]
 
-    with gr.Blocks(title="PitGPT — Race Engineer") as demo:
-        gr.HTML(HEADER_HTML.format(status=status, model=model_name))
+    with gr.Blocks(title="PitGPT — F1 Enthusiast") as demo:
+        gr.HTML(header_html(status=status, model=model_name))
 
         # Gradio 6 chatbots use the openai-style messages format by default
         # (a list of {"role", "content"} dicts) — no `type=` argument needed.
         chatbot = gr.Chatbot(
-            height=460,
-            label="Pit-to-car radio",
+            height=470,
+            label="Trackside chat",
             avatar_images=(None, None),
+            elem_id="pg-chat",
         )
 
         with gr.Row():
             msg = gr.Textbox(
-                placeholder="Ask your race engineer… (e.g. 'Undercut or stay out?')",
+                placeholder="Ask me anything about F1 — a driver, a race, a rule…",
                 scale=8,
                 show_label=False,
                 autofocus=True,
+                elem_id="pg-input",
             )
-            send_btn = gr.Button("Radio in", variant="primary", scale=1)
+            send_btn = gr.Button("Full send", variant="primary", scale=1, elem_id="pg-send")
 
         with gr.Row():
-            reset_btn = gr.Button("🔄 Reset chat", scale=1)
+            reset_btn = gr.Button("↺ Fresh start", scale=1, elem_id="pg-reset")
 
-        gr.Examples(examples=EXAMPLE_PROMPTS, inputs=msg, label="Quick calls")
+        gr.Examples(
+            examples=EXAMPLE_PROMPTS, inputs=msg, label="Try asking…", elem_id="pg-examples"
+        )
 
         # Wire events: both Enter and the button submit; streaming outputs go to
         # the chatbot, and the textbox is cleared.
@@ -104,7 +108,7 @@ def main() -> None:
         server_name="127.0.0.1",
         inbrowser=False,
         css=CUSTOM_CSS,
-        theme=gr.themes.Base(),
+        theme=build_theme(),
     )
 
 
