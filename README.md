@@ -180,22 +180,65 @@ header (graceful fallback). Architecture in [`docs/phase6_notes.md`](docs/phase6
 >         wrong way to jump in; pick a driver or team that hooks you and go from there…
 > ```
 
+## RAG: knowledge from retrieval, personality from QLoRA
+
+The architecture separates responsibilities: **facts come from retrieval, voice
+comes from the adapter.** A curated evergreen corpus (`rag/facts.py`) plus live
+current-season data from the free [OpenF1 API](https://openf1.org)
+(`rag/openf1.py`) are embedded with MiniLM (`rag/index.py`, plain NumPy cosine —
+no vector DB needed at this scale) and the top-k facts are folded into the user
+turn at generation time.
+
+```
+question ─► retriever (curated + OpenF1) ─► top-k facts ─► prompt builder
+                                                              │
+                     Gemma-3-1B (4-bit) + persona adapter ◄───┘
+                                     │
+                            grounded, in-voice answer
+```
+
+**The key engineering insight:** prompting alone couldn't make the persona-tuned
+model use retrieved context — it had been *trained* to answer from memory. The
+fix was in the training data: **counterfactual grounding examples** with
+randomized fact pairings (a driver paired with a different team per example,
+always matching the context). The model cannot memorize its way through those, so
+it *must* learn to read the context. Missing-context examples teach honest
+"I don't know", and wrong-entity traps teach it not to echo the wrong fact.
+
+```bash
+python scripts/build_rag.py        # build/refresh the fact index (curated + OpenF1)
+python scripts/eval_grounding.py   # run the 105-case grounding benchmark
+```
+
 ## Evaluation
 
-`scripts/evaluate.py` runs the base and fine-tuned models on the **same 20
-prompts** (`src/pitgpt/evaluation/prompts.py`) with identical decoding and writes
-a side-by-side `evaluation_report.md`. The Phase 1 baseline
-(`baseline_outputs.md`) shows the untuned model's answers for reference — e.g. the
-base model described an "undercut" as a *bent crankshaft*, which the fine-tune
-corrects. Method, what to look for, and honest limitations in
+**Grounding benchmark** (105 deterministic cases; entity cases use counterfactual
+pairings so a pass *proves* the model read the context):
+
+| Category | v1 adapter | v2 adapter |
+|---|---|---|
+| Entity grounding | 100% | **100%** |
+| Descriptive detail | 90% | **100%** |
+| Missing-context honesty | 75% | **85%** |
+| Synthesis (compare facts) | 80% | **80%** |
+| Persona retention | 100% | **100%** |
+| **Overall** | 90% | **94%** |
+| **Hallucination rate** | 3.8% | **2.9%** |
+
+Before this work the model ignored retrieved context entirely (it answered
+"Which team does Lando Norris drive for?" with generalities despite the fact
+being in the prompt). Reports live in `src/pitgpt/evaluation/`.
+
+`scripts/evaluate.py` additionally runs a 20-prompt base-vs-fine-tuned style
+comparison (`evaluation_report.md`); method and honest limitations in
 [`docs/phase5_notes.md`](docs/phase5_notes.md).
 
 ## Future work
 
-- Author more distinct concepts to raise output diversity beyond 44 answers.
-- Add a held-out test split and an LLM-as-judge rubric for quantitative scoring.
+- Better property-synthesis examples (the one remaining weak benchmark category).
+- A cross-encoder reranker and query rewriting for retrieval quality at scale.
+- Expand the fact corpus (Kaggle historical results → generated fact documents).
 - Multi-turn strategy dialogues (stint planning across several exchanges).
-- Optional retrieval of live timing/regulation data for grounding.
 - Export a merged model and/or GGUF for `llama.cpp` CPU inference.
 
 ## License
