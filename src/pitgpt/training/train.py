@@ -65,6 +65,7 @@ def build_sft_config() -> SFTConfig:
     return SFTConfig(
         output_dir=str(t.output_dir),
         num_train_epochs=t.num_train_epochs,
+        max_steps=t.max_steps,           # -1 defers to num_train_epochs
         per_device_train_batch_size=t.per_device_train_batch_size,
         gradient_accumulation_steps=t.gradient_accumulation_steps,
         learning_rate=t.learning_rate,
@@ -124,8 +125,13 @@ def train() -> str:
         f"{trainable:,}", f"{total:,}", 100 * trainable / total,
     )
 
+    # Resume support: set PITGPT_RESUME=auto to continue from the most recent
+    # checkpoint in output_dir (useful when a long run is interrupted), or give an
+    # explicit checkpoint path. Larger base models (e.g. Gemma) can exceed a
+    # background task's lifetime, so being able to resume matters.
+    resume = _resolve_resume(settings.training.output_dir)
     _log_vram("before train")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume)
     _log_vram("after train")
 
     out_dir = str(settings.training.output_dir)
@@ -134,6 +140,32 @@ def train() -> str:
     logger.info("Adapter saved to %s", out_dir)
     _log_vram("final")
     return out_dir
+
+
+def _resolve_resume(output_dir):
+    """Return a checkpoint to resume from, or None.
+
+    Controlled by the PITGPT_RESUME env var: ``auto`` picks the highest-numbered
+    ``checkpoint-*`` in ``output_dir``; any other value is treated as an explicit
+    path; unset means start fresh.
+    """
+    import os
+    import re
+    from pathlib import Path
+
+    val = os.environ.get("PITGPT_RESUME")
+    if not val:
+        return None
+    if val != "auto":
+        return val
+    out = Path(output_dir)
+    checkpoints = list(out.glob("checkpoint-*")) if out.exists() else []
+    if not checkpoints:
+        logger.info("PITGPT_RESUME=auto but no checkpoint found; starting fresh.")
+        return None
+    latest = max(checkpoints, key=lambda p: int(re.findall(r"\d+", p.name)[-1]))
+    logger.info("Resuming from %s", latest)
+    return str(latest)
 
 
 def _count_trainable(model) -> tuple[int, int]:

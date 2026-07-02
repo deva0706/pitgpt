@@ -81,16 +81,17 @@ class ModelConfig:
 
     # The persona injected as the system prompt for every conversation.
     system_prompt: str = (
-        "You are PitGPT, a veteran Formula 1 race engineer on the pit wall, "
-        "talking directly to your driver. Your personality: calm under pressure, "
-        "precise, quietly confident, encouraging, with a dry sense of humour. You "
-        "explain race strategy, tyre choices, pit windows, qualifying, telemetry, "
-        "regulations, DRS, ERS and weather clearly and technically, and you always "
-        "have your driver's back. Speak in the first person like a real radio call. "
-        "Use race-engineer phrasing naturally when it fits — 'Copy that.', "
-        "'Box, box, box.', 'Head down, push now.', 'Get in there!' — but never force "
-        "it into every reply. Be accurate and educational; when you don't know a "
-        "specific live number, say so rather than inventing it."
+        "You are PitGPT, a lifelong Formula 1 enthusiast — the knowledgeable friend "
+        "who has watched F1 for years and loves talking about it. You are NOT a race "
+        "engineer, a commentator, or a Wikipedia entry. You're warm, enthusiastic, "
+        "passionate and curious, and you make F1 feel exciting and welcoming, "
+        "especially to beginners. Explain technical ideas clearly, share the history "
+        "and the great rivalries, and enjoy a good strategy debate. Use F1 community "
+        "language naturally where it fits — 'Lights out!', 'mega lap', 'purple sector', "
+        "'wheel-to-wheel', 'dirty air', 'undercut', 'what a drive', 'absolute cinema' — "
+        "but never force it. Write like a real conversation, not documentation: open "
+        "with a hook, explain clearly, bring in a historical example when it helps, add "
+        "a sharp technical insight, and close in a friendly way. Never sound robotic."
     )
 
 
@@ -145,7 +146,11 @@ class TrainingConfig:
     # drove the loss to ~0.12 and over-fit, which garbled free-generation on a 360M
     # model. 1 epoch keeps the persona and coverage while staying closer to the
     # base model's coherence — a better trade for this small a model.
-    num_train_epochs: int = 1
+    num_train_epochs: int = 2
+    # max_steps -1 lets num_train_epochs govern the run length. On the ~760-row
+    # enthusiast dataset, 2 epochs ~= 96 steps (~16 min, so it runs across a couple
+    # of resumable foreground chunks). Watch for over-fitting on this fast learner.
+    max_steps: int = -1
     # Gemma-3-1B on a 4 GB card: batch 2 / seq 512 peaked at ~3.9 GB and the paged
     # optimizer thrashed (near-hang). Batch 1 keeps activation memory low and
     # leaves ~1 GB of headroom so training runs at full GPU. Effective batch = 16.

@@ -1,24 +1,21 @@
 """
-build_dataset.py — turn the curated knowledge base into ~1000 Alpaca pairs.
+build_dataset.py — turn the enthusiast knowledge base into training rows.
 
-Alpaca format
--------------
-Each training example is a JSON object:
+We take the hand-authored, style-teaching conversations in ``enthusiast_kb.py``
+and expand them into instruction/response rows. Expansion is deliberately light:
+each :class:`Example` already ships several *genuinely different* phrasings of its
+prompt, and we add a couple of natural conversational wrappers ("Hey, …",
+"I've always wondered — …") so the model sees the same idea asked a few ways.
 
-    {"instruction": "<what the user asks>",
-     "input": "",                # optional extra context; empty for us
-     "output": "<the engineer's answer>"}
+Why not blow this up to tens of thousands of rows?
+    Because we're teaching a **style**, and style is low-entropy — a few hundred
+    diverse, consistent, high-quality examples teach it well, and quality beats
+    quantity (the project spec says exactly this). Over-inflating with repetitive
+    paraphrases would just risk over-fitting the same handful of answers.
 
-Why generate rather than hand-write 1000 rows?
-    We hand-write the *knowledge* (in ``knowledge_base.py``) so every answer is
-    accurate and in-voice, then expand it into many examples by:
-      1. pairing each concept with its several instruction phrasings, and
-      2. adding lightly-varied instruction wrappers (e.g. "As my race engineer,
-         …") so the model sees the same idea asked many ways.
-    This teaches *robust instruction-following* for the domain without inventing
-    unverified facts — the outputs are always one of our vetted answers.
-
-The result is deterministic (a fixed seed) so the dataset is reproducible.
+Output is the model's native chat content rendered later by ``data_module``; here
+we store the neutral ``{instruction, input, output}`` shape the validator and
+trainer already understand.
 """
 
 from __future__ import annotations
@@ -28,81 +25,71 @@ import random
 from pathlib import Path
 
 from pitgpt.config import settings
-from pitgpt.data.knowledge_base import CONCEPTS, RADIO
+from pitgpt.data.enthusiast_kb import EXAMPLES
 
-# Instruction "wrappers" — natural ways a driver/engineer might frame a question.
-# ``{q}`` is the concept's base instruction. We keep the first entry as the bare
-# question so plain phrasings dominate, then add in-character variants.
+# Natural, friendly ways a person might open a question to a knowledgeable mate.
+# The first (plain) form is always included; the rest add light variety.
 WRAPPERS: tuple[str, ...] = (
     "{q}",
-    "{q}",  # weighted twice so the plain form stays most common
-    "As my race engineer, {q_lower}",
-    "Engineer, {q_lower}",
-    "Quick question from the cockpit: {q_lower}",
-    "Talk me through this: {q_lower}",
-    "For a rookie driver, {q_lower}",
-    "In simple terms, {q_lower}",
-    "Break it down for me — {q_lower}",
-    "I'm new to F1 strategy. {q}",
+    "Hey, {q_lower}",
+    "I've always wondered — {q_lower}",
+    "Quick one: {q_lower}",
+    "Been meaning to ask, {q_lower}",
+    "So {q_lower}",
 )
 
 
 def _lower_first(text: str) -> str:
-    """Lowercase only the first character (for mid-sentence wrappers)."""
     return text[0].lower() + text[1:] if text else text
 
 
-def _make_example(instruction: str, output: str) -> dict[str, str]:
+def _make_row(instruction: str, output: str) -> dict[str, str]:
     return {"instruction": instruction.strip(), "input": "", "output": output.strip()}
 
 
 def build_examples(seed: int = 42) -> list[dict[str, str]]:
-    """Expand the knowledge base into a de-duplicated list of Alpaca examples."""
+    """Expand the enthusiast examples into de-duplicated instruction rows."""
     rng = random.Random(seed)
-    examples: list[dict[str, str]] = []
-    seen_instructions: set[str] = set()
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
 
-    for concept in CONCEPTS:
-        for base_instruction in concept.instructions:
-            q_lower = _lower_first(base_instruction)
-            for wrapper in WRAPPERS:
-                instruction = wrapper.format(q=base_instruction, q_lower=q_lower)
+    # Rotate which wrapper each prompt gets so the variety is spread evenly.
+    wrapper_cursor = 0
+    for example in EXAMPLES:
+        for base_prompt in example.prompts:
+            q_lower = _lower_first(base_prompt)
+            # Always include the plain form, plus one rotating wrapper variant.
+            variants = ["{q}", WRAPPERS[1 + (wrapper_cursor % (len(WRAPPERS) - 1))]]
+            wrapper_cursor += 1
+            for wrapper in variants:
+                instruction = wrapper.format(q=base_prompt, q_lower=q_lower)
                 key = instruction.lower().strip()
-                if key in seen_instructions:
+                if key in seen:
                     continue
-                seen_instructions.add(key)
-                examples.append(_make_example(instruction, concept.response))
+                seen.add(key)
+                rows.append(_make_row(instruction, example.response))
 
-    # Radio-style short pairs, each with a couple of phrasings.
-    for prompt, reply in RADIO:
-        for wrapper in ("{q}", "Engineer: {q_lower}", "Give me the call — {q_lower}"):
-            q_lower = _lower_first(prompt)
-            instruction = wrapper.format(q=prompt, q_lower=q_lower)
-            key = instruction.lower().strip()
-            if key in seen_instructions:
-                continue
-            seen_instructions.add(key)
-            examples.append(_make_example(instruction, reply))
-
-    rng.shuffle(examples)
-    return examples
+    rng.shuffle(rows)
+    return rows
 
 
-def write_dataset(examples: list[dict[str, str]], path: Path | None = None) -> Path:
-    """Write the examples to the raw dataset JSON file."""
+def write_dataset(rows: list[dict[str, str]], path: Path | None = None) -> Path:
     settings.paths.ensure()
     path = path or settings.paths.dataset_raw
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(examples, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
 def main() -> None:
-    examples = build_examples()
-    path = write_dataset(examples)
-    n_concepts = len(CONCEPTS)
-    print(f"Built {len(examples)} instruction/response pairs "
-          f"from {n_concepts} concepts + {len(RADIO)} radio prompts.")
+    rows = build_examples()
+    path = write_dataset(rows)
+    n_examples = len(EXAMPLES)
+    n_unique_outputs = len({e.response for e in EXAMPLES})
+    print(
+        f"Built {len(rows)} instruction rows from {n_examples} distinct "
+        f"enthusiast conversations ({n_unique_outputs} unique responses)."
+    )
     print(f"Written to: {path}")
 
 

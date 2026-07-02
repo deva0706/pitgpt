@@ -44,7 +44,7 @@ footer { visibility: hidden; }
 HEADER_HTML = """
 <div id="pitgpt-header">
     <h1>🏎️ PitGPT — Race Engineer</h1>
-    <p>Offline F1 strategist on SmolLM2-360M + QLoRA · <span class="pitgpt-status">{status}</span></p>
+    <p>Offline F1 strategist on {model} + QLoRA · <span class="pitgpt-status">{status}</span></p>
 </div>
 """
 

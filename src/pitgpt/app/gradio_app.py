@@ -54,10 +54,14 @@ def _respond(message: str, history: list[Message]):
 
 def build_demo() -> gr.Blocks:
     """Assemble and return the Gradio Blocks app."""
+    from pitgpt.config import settings
+
     status = "fine-tuned adapter loaded" if service.using_adapter else "base model (no adapter)"
+    # Show the real base model (its short name) instead of a hard-coded label.
+    model_name = settings.model.base_model_id.split("/")[-1]
 
     with gr.Blocks(title="PitGPT — Race Engineer") as demo:
-        gr.HTML(HEADER_HTML.format(status=status))
+        gr.HTML(HEADER_HTML.format(status=status, model=model_name))
 
         # Gradio 6 chatbots use the openai-style messages format by default
         # (a list of {"role", "content"} dicts) — no `type=` argument needed.

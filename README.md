@@ -1,12 +1,13 @@
-# 🏎️ PitGPT — Offline F1 Race Engineer
+# 🏎️ PitGPT — Offline F1 Enthusiast
 
-> A fully-local Formula 1 **race engineer** chatbot, fine-tuned from
-> [`SmolLM2-360M-Instruct`](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct)
+> A fully-local Formula 1 **enthusiast** chatbot, fine-tuned from
+> [`google/gemma-3-1b-it`](https://huggingface.co/google/gemma-3-1b-it)
 > with **QLoRA** — small enough to train and run on a 4 GB laptop GPU.
 
-PitGPT talks like the voice in a driver's ear: pit-stop strategy, tyre deltas,
-qualifying prep, telemetry reads, regulations, DRS/ERS, and weather calls — calm,
-technical, and to the point.
+PitGPT chats like a lifelong F1 fan and knowledgeable friend: warm, enthusiastic,
+and conversational. The fine-tune deliberately teaches **communication style and
+personality**, not facts (the base model already knows F1) — so it welcomes
+beginners, debates rivalries, and explains the tech without sounding like a manual.
 
 ---
 
@@ -21,15 +22,16 @@ technical, and to the point.
 
 ## Overview
 
-PitGPT is a teaching-grade, production-structured project that takes a 360-million
+PitGPT is a teaching-grade, production-structured project that takes a ~1-billion
 parameter instruct model and specialises it — using parameter-efficient
-fine-tuning — into a Formula 1 race engineer persona. Everything runs **offline**:
+fine-tuning — into a Formula 1 **enthusiast** persona. Everything runs **offline**:
 data generation, 4-bit QLoRA training, evaluation, and a streaming Gradio chat UI.
 
-- **Base model:** SmolLM2-360M-Instruct (Apache-2.0)
-- **Method:** QLoRA (4-bit NF4 frozen base + LoRA adapters)
-- **Trainable params:** ~8.7 M of 213 M (**4.07 %**)
+- **Base model:** google/gemma-3-1b-it (gated — one-time `huggingface-cli login`)
+- **Method:** QLoRA (4-bit NF4 frozen base + LoRA adapters), teaching *style not facts*
+- **Trainable params:** ~13 M of ~664 M (**~2 %**)
 - **Target hardware:** NVIDIA RTX 3050 Laptop, 4 GB VRAM, Windows, Python 3.11
+- **4 GB tuning:** batch 1 / seq 384 / grad-checkpointing / paged 8-bit optimizer
 
 ## Motivation
 
@@ -64,11 +66,11 @@ knowledge_base.py ─► data/raw ─► data/processed ─► QLoRA train ─�
 
 ```mermaid
 flowchart LR
-    KB[knowledge_base.py] --> RAW[data/raw JSON]
+    KB[enthusiast_kb.py] --> RAW[data/raw JSON]
     RAW --> VAL[validate_dataset.py]
     VAL --> CLEAN[data/processed clean JSON]
     CLEAN --> TRAIN[QLoRA SFTTrainer]
-    BASE[SmolLM2-360M 4-bit] --> TRAIN
+    BASE[Gemma-3-1B 4-bit] --> TRAIN
     TRAIN --> ADAPTER[models/adapters/pitgpt-lora]
     ADAPTER --> INF[inference engine]
     BASE --> INF
@@ -118,24 +120,26 @@ python scripts/check_gpu.py
 
 ## Dataset
 
-Generated from `src/pitgpt/data/knowledge_base.py` — **36 hand-authored concepts**
-across strategy, tyres, qualifying, telemetry, regulations, DRS/ERS, weather, and
-driver comparison, plus 8 clipped radio calls. `build_dataset.py` paraphrase-
-augments these into **1014 Alpaca pairs** (1014 unique instructions, 44 vetted
-answers); `validate_dataset.py` checks JSON/schema, removes malformed rows and
-duplicates, and prints statistics.
+Authored by hand in `src/pitgpt/data/enthusiast_kb.py` — **~127 distinct
+conversations** across driver comparisons, teams, race strategy, tyres, historic
+races, regulations, technical concepts, beginner explanations, fun debates and
+general chat. `build_dataset.py` expands them (with light phrasing variety) into
+**~760 style-teaching examples** (~127 unique, ~110-word responses);
+`validate_dataset.py` checks JSON/schema, removes malformed/duplicate rows, and
+prints statistics.
 
 ```bash
 python scripts/build_dataset.py     # build raw + validate → data/processed clean set
 ```
 
-Design choice: we author the **knowledge** by hand so outputs are accurate, and
-augment only the **question phrasings** — the model never learns a fabricated fact.
-See [`docs/phase2_notes.md`](docs/phase2_notes.md).
+Design philosophy (per spec): we teach **communication style and personality, not
+facts** — the base model already knows F1. Responses are written **fact-safe**
+(broad, well-known history; no invented stats) so the model learns *how* to talk,
+not fabricated trivia.
 
 ## QLoRA explained
 
-Freeze SmolLM2 and store it in **4-bit NF4** (cheap memory). Add small low-rank
+Freeze Gemma-3-1B and store it in **4-bit NF4** (cheap memory). Add small low-rank
 **LoRA** matrices (`r=16`, `alpha=32`) to the attention (`q,k,v,o_proj`) and MLP
 (`gate,up,down_proj`) projections and train **only** those. Fit inside 4 GB with
 batch-size tricks, **gradient checkpointing**, and a **paged 8-bit optimizer**.
@@ -150,9 +154,10 @@ python scripts/train.py      # QLoRA fine-tune → models/adapters/pitgpt-lora
 ```
 
 Sized for 4 GB: 4-bit NF4 base, bf16 compute (Ampere-native, no grad scaler),
-`max_length=512`, effective batch 16 (4×4 accumulation), 3 epochs. The trainer
-logs VRAM usage and the trainable-parameter count, and checkpoints periodically.
-Details + the real fp16→bf16 bug we hit in [`docs/phase4_notes.md`](docs/phase4_notes.md).
+`max_length=384`, **batch 1 × 16 accumulation** (effective 16), 2 epochs. Gemma-1B
+at higher batch/seq thrashed the paged optimizer near 4 GB, so batch 1 keeps ~1 GB
+headroom. The trainer logs VRAM and trainable params, checkpoints every 25 steps,
+and supports `PITGPT_RESUME=auto`. Details in [`docs/phase4_notes.md`](docs/phase4_notes.md).
 
 ## Running the app
 
@@ -169,9 +174,10 @@ header (graceful fallback). Architecture in [`docs/phase6_notes.md`](docs/phase6
 > _Placeholder — add a screenshot of the running Gradio app here._
 >
 > ```
-> [ 🏎️ PitGPT — Race Engineer ]
-> You:   Undercut or stay out?
-> PitGPT: Copy that. If the car ahead is managing worn fronts and the pit-loss is …
+> [ 🏎️ PitGPT — F1 Enthusiast ]
+> You:   I'm new to F1, where do I start?
+> PitGPT: Welcome — this is one of my favourite things to talk about! There's no
+>         wrong way to jump in; pick a driver or team that hooks you and go from there…
 > ```
 
 ## Evaluation
@@ -195,7 +201,7 @@ corrects. Method, what to look for, and honest limitations in
 ## License
 
 MIT (this project's code and adapters) — see [`LICENSE`](LICENSE). The base model
-SmolLM2-360M-Instruct is Apache-2.0 (Hugging Face). This repo does not
+google/gemma-3-1b-it is licensed by Google (Gemma terms). This repo does not
 redistribute the base weights.
 
 ---
