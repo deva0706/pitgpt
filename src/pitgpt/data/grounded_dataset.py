@@ -184,6 +184,117 @@ def _rule_examples(rng: random.Random, n: int) -> list[dict]:
     return rows
 
 
+def _comparison_examples(rng: random.Random, n: int) -> list[dict]:
+    """Teach cross-fact synthesis with RANDOMIZED numbers — must actually compare.
+
+    Counts are random per example, so 'who won more' can only be answered by
+    reading and comparing the two facts, never from memory.
+    """
+    rows = []
+    for _ in range(n):
+        a, b = rng.sample(DRIVERS, 2)
+        na, nb = rng.sample(range(1, 8), 2)          # distinct counts 1..7
+        winner, wn = (a, na) if na > nb else (b, nb)
+        facts = [f"- {a} has won {na} World Championships.",
+                 f"- {b} has won {nb} World Championships."]
+        rng.shuffle(facts)
+        ctx = "\n".join(facts)
+        q = rng.choice([
+            f"Who has won more championships, {a} or {b}?",
+            f"Of {a} and {b}, who has the most titles?",
+            f"Who's more successful in championships, {a} or {b}?",
+        ])
+        answer = rng.choice([
+            f"Going by the facts here, {winner} — {wn} championships to "
+            f"{min(na, nb)}.",
+            f"{winner} has more, with {wn} titles against {min(na, nb)}.",
+        ]) + _flavour(rng)
+        rows.append(_row(ctx, q, answer))
+
+    # Property comparisons (which lasts longer / which is faster), randomized too.
+    props = [
+        ("tyre compound", "lasts longer", "wears out faster"),
+        ("circuit", "has higher top speeds", "is slower and tighter"),
+        ("car setup", "is quicker in corners", "is quicker on the straights"),
+    ]
+    names_pool = ["Option Alpha", "Option Beta", "the soft", "the hard",
+                  "the medium", "Monza", "Monaco", "Suzuka", "Silverstone"]
+    for _ in range(n // 2):
+        kind, good, bad = rng.choice(props)
+        x, y = rng.sample(names_pool, 2)
+        facts = [f"- {x} {good}.", f"- {y} {bad}."]
+        rng.shuffle(facts)
+        q = f"Which {kind} {good}: {x} or {y}?"
+        a = f"From the facts given: {x} {good}." + _flavour(rng)
+        rows.append(_row("\n".join(facts), q, a))
+    return rows
+
+
+def _detail_extraction_examples(rng: random.Random, n: int) -> list[dict]:
+    """Teach pulling a specific detail (year, number, condition) out of a fact.
+
+    Years/numbers are randomized so the value can only come from the context.
+    """
+    rows = []
+    templates = [
+        ("{thing} was introduced in {year}.",
+         "When was {thing} introduced?",
+         "It was introduced in {year}."),
+        ("{thing} was first used in Formula 1 in {year}.",
+         "What year did {thing} first appear?",
+         "{year} — that's when {thing} first appeared."),
+        ("A race win is worth {num} points under this scoring system.",
+         "How many points is a win worth here?",
+         "A win is worth {num} points."),
+        ("{thing} can only be used when a driver is within {num} second(s) of the car ahead.",
+         "How close must a driver be to use {thing}?",
+         "Within {num} second(s) of the car ahead — that's the activation window."),
+        ("The pit lane speed limit at this circuit is {num} km/h.",
+         "What's the pit lane speed limit?",
+         "It's {num} km/h at this circuit."),
+    ]
+    things = ["DRS", "ERS", "the halo", "the cost cap", "ground effect",
+              "the sprint format", "the virtual safety car"]
+    for _ in range(n):
+        fact_t, q_t, a_t = rng.choice(templates)
+        thing = rng.choice(things)
+        year = str(rng.choice(range(1994, 2025)))
+        num = str(rng.choice([1, 2, 10, 20, 25, 60, 80, 100]))
+        fmt = {"thing": thing, "year": year, "num": num}
+        rows.append(_row(
+            f"- {fact_t.format(**fmt)}",
+            q_t.format(**fmt),
+            a_t.format(**fmt) + _flavour(rng),
+        ))
+    return rows
+
+
+def _wrong_entity_trap_examples(rng: random.Random, n: int) -> list[dict]:
+    """Context names ANOTHER driver's team; the asked driver isn't covered.
+
+    The trap is echoing the other driver's team. The answer must explicitly
+    distinguish who the facts are about and decline to guess.
+    """
+    rows = []
+    for _ in range(n):
+        asked = rng.choice(DRIVERS)
+        other = rng.choice([d for d in DRIVERS if d != asked])
+        team = rng.choice(TEAMS)
+        ctx = f"- {other} currently races for {team}."
+        q = rng.choice([
+            f"Which team does {asked} drive for?",
+            f"Who does {asked} race for?",
+        ])
+        a = rng.choice([
+            f"The facts I've got only cover {other} (who's at {team}) — they don't "
+            f"say anything about {asked}, so I won't guess.",
+            f"Careful one! What I can see is about {other}, not {asked}. I don't "
+            f"have {asked}'s team in front of me, so I'd rather not make it up.",
+        ])
+        rows.append(_row(ctx, q, a))
+    return rows
+
+
 def _real_fact_examples(rng: random.Random) -> list[dict]:
     """Ground on the real curated corpus so true pairings are also seen."""
     from pitgpt.rag.facts import CURATED_FACTS
@@ -206,12 +317,15 @@ def build_grounded_rows(seed: int = 42) -> list[dict[str, str]]:
     """Assemble the full grounded dataset (deterministic under ``seed``)."""
     rng = random.Random(seed)
     rows: list[dict] = []
-    rows += _driver_team_examples(rng, 320)   # core grounding lesson
-    rows += _distractor_examples(rng, 200)     # pick the right fact
-    rows += _missing_examples(rng, 200)        # admit when context lacks it
+    rows += _driver_team_examples(rng, 320)        # core grounding lesson
+    rows += _distractor_examples(rng, 200)          # pick the right fact
+    rows += _missing_examples(rng, 150)             # admit when context lacks it
+    rows += _wrong_entity_trap_examples(rng, 180)   # don't echo the wrong entity's fact
+    rows += _comparison_examples(rng, 160)          # synthesize across facts
+    rows += _detail_extraction_examples(rng, 160)   # cite the year/number/condition
     rows += _circuit_examples(rng, 120)
     rows += _rule_examples(rng, 120)
-    rows += _real_fact_examples(rng)           # true pairings from the corpus
+    rows += _real_fact_examples(rng)                # true pairings from the corpus
 
     # De-duplicate on (context, question, output).
     seen, unique = set(), []

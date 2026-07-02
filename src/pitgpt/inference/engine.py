@@ -137,9 +137,16 @@ def generate_reply(
     user_prompt: str,
     history: list[Message] | None = None,
     use_rag: bool = True,
+    context: str | None = None,
 ) -> str:
-    """Generate a single, complete enthusiast reply (blocking), grounded via RAG."""
-    context = _rag_context(user_prompt, use_rag)
+    """Generate a single, complete enthusiast reply (blocking), grounded via RAG.
+
+    ``context`` (if given) is used verbatim instead of live retrieval — this is
+    how the evaluation harness injects *gold* context to measure generation
+    grounding in isolation from retrieval quality.
+    """
+    if context is None:
+        context = _rag_context(user_prompt, use_rag)
     messages = build_messages(user_prompt, history, context=context)
     inputs = _encode(tokenizer, messages, model.device)
     prompt_len = inputs["input_ids"].shape[-1]
