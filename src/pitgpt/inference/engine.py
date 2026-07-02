@@ -23,6 +23,7 @@ import torch
 from transformers import TextIteratorStreamer
 
 from pitgpt.config import settings
+from pitgpt.inference.templating import render_chat
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,10 @@ def _encode(tokenizer, messages: list[Message], device) -> dict:
     an attention mask, which silences generation warnings and is correct for
     left-padded batches.
     """
-    encoded = tokenizer.apply_chat_template(
+    encoded = render_chat(
+        tokenizer,
         messages,
+        tokenize=True,
         add_generation_prompt=True,   # append the "assistant:" cue so the model replies
         return_tensors="pt",
         return_dict=True,

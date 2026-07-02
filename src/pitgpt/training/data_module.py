@@ -20,6 +20,7 @@ from pathlib import Path
 from datasets import Dataset
 
 from pitgpt.config import settings
+from pitgpt.inference.templating import render_chat
 
 
 def _to_messages(row: dict) -> list[dict[str, str]]:
@@ -57,8 +58,10 @@ def build_sft_dataset(tokenizer, path: Path | None = None) -> Dataset:
 
     def render(row: dict) -> dict:
         messages = _to_messages(row)
-        text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=False
+        # render_chat folds the system persona into the first user turn for
+        # templates (e.g. Gemma) that don't accept a system role.
+        text = render_chat(
+            tokenizer, messages, tokenize=False, add_generation_prompt=False
         )
         return {"text": text}
 

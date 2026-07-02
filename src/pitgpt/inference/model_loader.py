@@ -81,6 +81,11 @@ def load_model(
     use_cuda = torch.cuda.is_available()
 
     load_kwargs: dict = {}
+    # Gemma uses attention soft-capping that the fused SDPA/Flash paths handle
+    # poorly during training; the model card recommends eager attention. This is
+    # a no-op for other families.
+    if "gemma" in model_id.lower():
+        load_kwargs["attn_implementation"] = "eager"
     if quantized and use_cuda:
         load_kwargs["quantization_config"] = build_quantization_config()
         load_kwargs["device_map"] = "auto"
