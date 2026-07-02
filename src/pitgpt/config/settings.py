@@ -69,8 +69,12 @@ class ModelConfig:
     """Which base model we fine-tune, and where the trained adapter lands."""
 
     # SmolLM2-360M-Instruct: 360M params, already instruction-tuned, ~720 MB.
+    # Gemma-3-1B (gated; requires a one-time `huggingface-cli login`). Larger than
+    # SmolLM2-360M, so it holds F1 facts noticeably better while still fitting a
+    # 4 GB card in 4-bit. Override with the PITGPT_BASE_MODEL env var, e.g.
+    # `HuggingFaceTB/SmolLM2-360M-Instruct` for the lighter, no-login model.
     base_model_id: str = os.environ.get(
-        "PITGPT_BASE_MODEL", "HuggingFaceTB/SmolLM2-360M-Instruct"
+        "PITGPT_BASE_MODEL", "google/gemma-3-1b-it"
     )
     # Directory holding the trained LoRA adapter (adapter_config.json + weights).
     adapter_dir: Path = REPO_ROOT / "models" / "adapters" / "pitgpt-lora"
@@ -142,16 +146,18 @@ class TrainingConfig:
     # model. 1 epoch keeps the persona and coverage while staying closer to the
     # base model's coherence — a better trade for this small a model.
     num_train_epochs: int = 1
-    # Smoke test showed ~0.7 GB peak at batch 1, so a 4 GB card has ample room.
-    per_device_train_batch_size: int = 4      # fits comfortably; speeds up the run
-    gradient_accumulation_steps: int = 4      # effective batch size = 4 * 4 = 16
+    # Gemma-3-1B on a 4 GB card: batch 2 / seq 512 peaked at ~3.9 GB and the paged
+    # optimizer thrashed (near-hang). Batch 1 keeps activation memory low and
+    # leaves ~1 GB of headroom so training runs at full GPU. Effective batch = 16.
+    per_device_train_batch_size: int = 1
+    gradient_accumulation_steps: int = 16     # effective batch size = 1 * 16 = 16
     learning_rate: float = 2e-4               # typical LoRA LR (higher than full-FT)
-    max_seq_length: int = 512                 # our chats are ~270 tokens; 512 is safe headroom
+    max_seq_length: int = 384                 # our chats are ~270 tokens; 384 trims activation memory
     warmup_ratio: float = 0.03
     lr_scheduler_type: str = "cosine"
     logging_steps: int = 10
-    save_steps: int = 50
-    save_total_limit: int = 2
+    save_steps: int = 25          # frequent checkpoints so long runs can be resumed
+    save_total_limit: int = 3
     optim: str = "paged_adamw_8bit"           # bitsandbytes paged optimizer → less VRAM
     gradient_checkpointing: bool = True       # trade compute for memory
     seed: int = 42
