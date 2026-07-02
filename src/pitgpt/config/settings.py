@@ -137,7 +137,11 @@ class TrainingConfig:
     """SFTTrainer hyperparameters, sized for a 4 GB RTX 3050 Laptop GPU."""
 
     output_dir: Path = REPO_ROOT / "models" / "adapters" / "pitgpt-lora"
-    num_train_epochs: int = 3
+    # On the 2310-pair set with many near-duplicate instruction wrappers, 3 epochs
+    # drove the loss to ~0.12 and over-fit, which garbled free-generation on a 360M
+    # model. 1 epoch keeps the persona and coverage while staying closer to the
+    # base model's coherence — a better trade for this small a model.
+    num_train_epochs: int = 1
     # Smoke test showed ~0.7 GB peak at batch 1, so a 4 GB card has ample room.
     per_device_train_batch_size: int = 4      # fits comfortably; speeds up the run
     gradient_accumulation_steps: int = 4      # effective batch size = 4 * 4 = 16

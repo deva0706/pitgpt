@@ -3,7 +3,24 @@
 **Run outcome: ✅ complete, end-to-end.** All 7 phases were built, the model was
 fine-tuned with QLoRA, the adapter was saved, and the chat app loads it and
 behaves like an F1 race engineer. Work is committed to a **dedicated local git
-repo** (7 commits, one per phase). Nothing was pushed anywhere.
+repo**. Nothing was pushed anywhere.
+
+## Post-build follow-ups (after the initial run)
+
+- **Fixed a chat crash** (Gradio 6 list-content messages) — commit in history.
+- **Expanded the dataset** from 1014 → **2310 pairs** (82 concepts, 96 unique
+  outputs) and **gave PitGPT a stronger personality** (richer system prompt +
+  identity/pep-talk/status/celebrate concepts and character-rich radio calls).
+- **Retrained** on the 2310-pair set. Findings: 3 epochs drove loss to ~0.12 and
+  **over-fit**, producing verbatim persona answers but garbled technical prose
+  ("Dynamic Storm Radar" for DRS). A **1-epoch** fine-tune (loss ~1.17) generates
+  far more coherently across the board with personality intact, so that is the
+  **shipped adapter**. Config reflects `num_train_epochs = 1` with a comment.
+- **Note on training runs:** long *background* training tasks were killed by an
+  environment watchdog partway through; the shipped 1-epoch adapter was trained
+  in the **foreground** (≈570 s, under the 10-min limit) and completed cleanly.
+- The 360M factual-wobble limitation still applies and is inherent to the model
+  size — see `docs/BLOCKERS.md`.
 
 ---
 
