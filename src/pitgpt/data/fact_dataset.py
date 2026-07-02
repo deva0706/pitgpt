@@ -119,7 +119,8 @@ def _driver_rows(t: dict, champ_years: dict, rng: random.Random) -> list[dict]:
         elif f["wins"]:
             hook = f"Grand Prix winner, {f['wins']} career win{'s' if f['wins'] > 1 else ''}"
         else:
-            hook = f"{f['nationality']} racer of the {y0}s"
+            decade = (y0 // 10) * 10
+            hook = f"{f['nationality']} racer of the {decade}s"
         card = (
             f"🏎️ {f['name']} — {hook}. {f['nationality']} driver, raced {span}"
             + (f", {arrow}" if arrow else "") + "."

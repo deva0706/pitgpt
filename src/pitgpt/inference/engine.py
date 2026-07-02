@@ -123,18 +123,16 @@ def _generation_kwargs() -> dict:
 def _rag_context(user_prompt: str, use_rag: bool) -> str:
     """Fetch grounding facts for the prompt (empty if RAG off or no index).
 
-    RAG DISABLED (commented out) by decision: improve the base model's accuracy
-    first; the 62-doc corpus was echoing wrong-entity facts for uncovered names
-    (e.g. Ricciardo). The retrieval stack in ``pitgpt/rag/`` remains intact and
-    benchmarked — uncomment below to re-enable.
+    RE-ENABLED with the full 2,270-doc hybrid index (dense + BM25 + RRF). The
+    earlier 62-doc corpus echoed wrong-entity facts for uncovered names; the
+    complete Kaggle-derived knowledge base closes that coverage hole.
     """
-    return ""
-    # if not use_rag:
-    #     return ""
-    # # Imported lazily so inference works even without the RAG deps/index.
-    # from pitgpt.rag.retriever import retrieve_context
-    #
-    # return retrieve_context(user_prompt)
+    if not use_rag:
+        return ""
+    # Imported lazily so inference works even without the RAG deps/index.
+    from pitgpt.rag.retriever import retrieve_context
+
+    return retrieve_context(user_prompt)
 
 
 @torch.inference_mode()
