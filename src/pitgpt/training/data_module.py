@@ -20,19 +20,24 @@ from pathlib import Path
 from datasets import Dataset
 
 from pitgpt.config import settings
+from pitgpt.inference.engine import build_messages
 from pitgpt.inference.templating import render_chat
 
 
 def _to_messages(row: dict) -> list[dict[str, str]]:
-    """Turn one Alpaca row into a system/user/assistant message list."""
-    user_content = row["instruction"]
+    """Turn one row into a system/user/assistant message list.
+
+    Crucially, we build the user turn with the SAME ``build_messages`` used at
+    inference — so if a row carries retrieved ``context``, it is folded into the
+    user turn exactly as it will be at serve time. This train/serve parity is what
+    lets the model actually learn to ground on retrieved context.
+    """
+    question = row["instruction"]
     if row.get("input"):
-        user_content = f"{user_content}\n\n{row['input']}"
-    return [
-        {"role": "system", "content": settings.model.system_prompt},
-        {"role": "user", "content": user_content},
-        {"role": "assistant", "content": row["output"]},
-    ]
+        question = f"{question}\n\n{row['input']}"
+    messages = build_messages(question, history=None, context=row.get("context", ""))
+    messages.append({"role": "assistant", "content": row["output"]})
+    return messages
 
 
 def load_clean_rows(path: Path | None = None) -> list[dict]:

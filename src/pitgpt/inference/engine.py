@@ -53,12 +53,18 @@ def _content_to_text(content) -> str:
     return "" if content is None else str(content)
 
 
-def build_messages(user_prompt, history: list[Message] | None = None) -> list[Message]:
-    """Assemble the full message list, prepending the race-engineer system prompt.
+def build_messages(
+    user_prompt,
+    history: list[Message] | None = None,
+    context: str = "",
+) -> list[Message]:
+    """Assemble the full message list, prepending the enthusiast system prompt.
 
     ``history`` (if given) is the prior turns so multi-turn context is preserved.
-    All content is normalised to plain strings so the chat template never sees a
-    list (see :func:`_content_to_text`).
+    ``context`` (if given) is a block of retrieved facts (RAG) added as a second
+    system message so the model can ground its answer without us baking facts into
+    the weights. All content is normalised to plain strings so the chat template
+    never sees a list (see :func:`_content_to_text`).
     """
     messages: list[Message] = [{"role": "system", "content": settings.model.system_prompt}]
     for turn in history or []:
@@ -68,7 +74,12 @@ def build_messages(user_prompt, history: list[Message] | None = None) -> list[Me
         text = _content_to_text(turn.get("content"))
         if text:
             messages.append({"role": role, "content": text})
-    messages.append({"role": "user", "content": _content_to_text(user_prompt)})
+    # Fold retrieved facts into the *user* turn, right next to the question — small
+    # models follow context far better here than in a separate system message.
+    user_text = _content_to_text(user_prompt)
+    if context:
+        user_text = f"{context}\n\nUsing the facts above where relevant, answer: {user_text}"
+    messages.append({"role": "user", "content": user_text})
     return messages
 
 
@@ -109,15 +120,27 @@ def _generation_kwargs() -> dict:
     }
 
 
+def _rag_context(user_prompt: str, use_rag: bool) -> str:
+    """Fetch grounding facts for the prompt (empty if RAG off or no index)."""
+    if not use_rag:
+        return ""
+    # Imported lazily so inference works even without the RAG deps/index.
+    from pitgpt.rag.retriever import retrieve_context
+
+    return retrieve_context(user_prompt)
+
+
 @torch.inference_mode()
 def generate_reply(
     model,
     tokenizer,
     user_prompt: str,
     history: list[Message] | None = None,
+    use_rag: bool = True,
 ) -> str:
-    """Generate a single, complete race-engineer reply (blocking)."""
-    messages = build_messages(user_prompt, history)
+    """Generate a single, complete enthusiast reply (blocking), grounded via RAG."""
+    context = _rag_context(user_prompt, use_rag)
+    messages = build_messages(user_prompt, history, context=context)
     inputs = _encode(tokenizer, messages, model.device)
     prompt_len = inputs["input_ids"].shape[-1]
 
@@ -137,14 +160,16 @@ def stream_reply(
     tokenizer,
     user_prompt: str,
     history: list[Message] | None = None,
+    use_rag: bool = True,
 ) -> Iterator[str]:
-    """Yield the reply token-by-token as a growing string (for the UI).
+    """Yield the reply token-by-token as a growing string (for the UI), RAG-grounded.
 
     We run ``generate()`` on a background thread and pull decoded text off a
     ``TextIteratorStreamer`` queue. Each yield is the *cumulative* text so far,
     which is exactly what Gradio's chat expects.
     """
-    messages = build_messages(user_prompt, history)
+    context = _rag_context(user_prompt, use_rag)
+    messages = build_messages(user_prompt, history, context=context)
     inputs = _encode(tokenizer, messages, model.device)
 
     streamer = TextIteratorStreamer(

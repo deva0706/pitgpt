@@ -94,11 +94,17 @@ def validate(
     seen: set[tuple[str, str]] = set()
     clean: list[dict[str, str]] = []
     for row in wellformed:
-        key = (row["instruction"].strip(), row["output"].strip())
+        # Grounded rows carry a "context"; include it in the dedup key so two
+        # questions with different context aren't collapsed.
+        ctx = row.get("context", "")
+        key = (row["instruction"].strip(), row["output"].strip(), ctx.strip())
         if key in seen:
             continue
         seen.add(key)
-        clean.append({k: row[k] for k in REQUIRED_FIELDS})
+        kept_row = {k: row[k] for k in REQUIRED_FIELDS}
+        if ctx:
+            kept_row["context"] = ctx
+        clean.append(kept_row)
     report.duplicates_removed = len(wellformed) - len(clean)
     report.kept = len(clean)
 
