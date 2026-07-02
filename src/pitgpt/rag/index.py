@@ -111,21 +111,38 @@ class FactRetriever:
         return self
 
     # ---- query ----
-    def retrieve(self, query: str, k: int = 4, min_score: float = 0.25) -> list[dict]:
+    def retrieve(
+        self,
+        query: str,
+        k: int = 4,
+        min_score: float = 0.25,
+        sources: list[str] | None = None,
+    ) -> list[dict]:
         """Hybrid retrieval: dense cosine + BM25, fused by reciprocal rank.
 
         RRF (k=60) is the standard, hyperparameter-light way to combine rankers
         with incomparable score scales. A relevance gate then drops candidates
         that neither ranker actually liked (weak dense score AND no lexical
         overlap), so off-topic questions don't drag in misleading facts.
+
+        ``sources`` restricts candidates to the given doc families. This is the
+        fix for the "popular entity" problem: Schumacher has ~90 race-winner
+        docs that otherwise flood the ranking and crowd out his single bio doc
+        when the question is about *him*, not a race.
         """
         if self._embeddings is None or not self._docs:
             return []
         q = self._encode([query])[0]
         dense_scores = self._embeddings @ q                       # (n_docs,)
-        dense_rank = np.argsort(-dense_scores)
-
         bm25_scores = np.asarray(self._bm25.get_scores(_tokenize(query)))
+
+        if sources:
+            allowed = np.array([d.get("source") in sources for d in self._docs])
+            if allowed.any():                       # never filter down to nothing
+                dense_scores = np.where(allowed, dense_scores, -1.0)
+                bm25_scores = np.where(allowed, bm25_scores, 0.0)
+
+        dense_rank = np.argsort(-dense_scores)
         bm25_rank = np.argsort(-bm25_scores)
 
         # Reciprocal rank fusion over the top window of each ranker.

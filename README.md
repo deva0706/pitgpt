@@ -1,37 +1,55 @@
-# 🏎️ PitGPT — Offline F1 Enthusiast
+# 🏎️ PitGPT — a local F1 assistant built on one principle
 
-> A fully-local Formula 1 **enthusiast** chatbot, fine-tuned from
-> [`google/gemma-3-1b-it`](https://huggingface.co/google/gemma-3-1b-it)
-> with **QLoRA** — small enough to train and run on a 4 GB laptop GPU.
+> **Knowledge comes from retrieval. Behavior comes from fine-tuning.**
+> A fully-local Formula 1 chatbot — Gemma-3-1B + QLoRA + hybrid RAG — that runs
+> and *trains* on a 4 GB laptop GPU, with the benchmarks to justify every
+> architectural decision.
 
-PitGPT chats like a lifelong F1 fan and knowledgeable friend: warm, enthusiastic,
-and conversational. The fine-tune deliberately teaches **communication style and
-personality**, not facts (the base model already knows F1) — so it welcomes
-beginners, debates rivalries, and explains the tech without sounding like a manual.
+PitGPT answers like an enthusiastic F1 friend, in **six distinctive per-category
+reply styles**, grounding every fact in a **2,270-document knowledge base**
+covering all 75 years of the sport — because we *measured* that a 1B model
+storing facts in its weights tops out at **22% accuracy**, and redesigned the
+system around that finding instead of fighting it.
+
+**The one-line story:** we tried facts-in-weights, benchmarked the failure,
+moved knowledge to retrieval, retrained the adapter for *behavior only*
+(persona + grounding + styles, with counterfactual data that makes memorization
+impossible) — and the same 90-case benchmark went **22% → 51% strict accuracy,
+with confident-wrong answers cut from 78% → 44%**.
 
 ---
 
 ## Table of contents
-- [Overview](#overview) · [Motivation](#motivation) · [Features](#features)
-- [Architecture](#architecture) · [Folder structure](#folder-structure)
-- [Installation](#installation) · [Dataset](#dataset) · [QLoRA explained](#qlora-explained)
+- [The thesis](#the-thesis-and-the-evidence) · [Architecture](#architecture) · [Features](#features)
+- [Folder structure](#folder-structure) · [Installation](#installation)
+- [The training data](#the-training-data-behavior-not-facts) · [QLoRA explained](#qlora-explained)
 - [Training](#training) · [Running the app](#running-the-app) · [Screenshots](#screenshots)
 - [Evaluation](#evaluation) · [Future work](#future-work) · [License](#license)
 
 ---
 
-## Overview
+## The thesis, and the evidence
 
-PitGPT is a teaching-grade, production-structured project that takes a ~1-billion
-parameter instruct model and specialises it — using parameter-efficient
-fine-tuning — into a Formula 1 **enthusiast** persona. Everything runs **offline**:
-data generation, 4-bit QLoRA training, evaluation, and a streaming Gradio chat UI.
+Small language models are excellent at *behavior* and terrible at being
+*databases*. This project demonstrates that split empirically, on one fixed
+90-case benchmark (held-out phrasings, gold answers from the historical record):
+
+| Architecture | Overall (strict) | Champions | Confident-wrong |
+|---|---|---|---|
+| Facts fine-tuned into weights (closed-book) | 22% | 30% | 78% |
+| **Facts from hybrid RAG, behavior-only adapter** | **51%** | **83%** | **44%** |
+
+Same base model, same GPU, same benchmark — the only change is *where knowledge
+lives*. Meanwhile behavior-in-weights works beautifully: the six reply
+signatures hold at ~98% when measured in isolation, and grounding behavior
+(trained with counterfactual data) scores 94% with gold context.
 
 - **Base model:** google/gemma-3-1b-it (gated — one-time `huggingface-cli login`)
-- **Method:** QLoRA (4-bit NF4 frozen base + LoRA adapters), teaching *style not facts*
-- **Trainable params:** ~13 M of ~664 M (**~2 %**)
-- **Target hardware:** NVIDIA RTX 3050 Laptop, 4 GB VRAM, Windows, Python 3.11
-- **4 GB tuning:** batch 1 / seq 384 / grad-checkpointing / paged 8-bit optimizer
+- **Adapter:** ~13 M trainable params (~2%) — persona, grounding, styles; zero facts
+- **Knowledge:** 2,270 atomic fact docs (Kaggle 1950-2024 + curated rules + OpenF1)
+- **Retrieval:** MiniLM dense + BM25, reciprocal-rank fusion, query-aware routing
+- **Hardware:** RTX 3050 Laptop, 4 GB VRAM, Windows — batch 1×16, seq 384,
+  gradient checkpointing, paged 8-bit AdamW, bf16
 
 ## Motivation
 
@@ -43,38 +61,54 @@ resource: each phase ships teaching notes and Q&A.
 
 ## Features
 
-- 🧠 **QLoRA fine-tuning** that fits in ~1 GB of VRAM (peak ~0.7 GB observed).
-- 🗂️ **~1000-pair instruction dataset** generated from hand-verified F1 knowledge
-  (no hallucinated facts), with a JSON validator + statistics tool.
-- 💬 **Streaming Gradio chat** with multi-turn history, an F1 pit-wall theme, and
-  a reset button.
-- 🔌 **Adapter-only artifacts** (tens of MB) with graceful fallback to the base
-  model when no adapter is present.
-- 🧩 **Modular `src/` package** with a single config source of truth, type hints,
-  logging, and tests.
-- 📚 **Phase-by-phase docs**: theory notes *and* interview questions for each phase.
+- 🔍 **Hybrid RAG** over 2,270 atomic fact docs: MiniLM dense + BM25 lexical,
+  fused by reciprocal rank, with query-aware source routing (driver questions →
+  bio docs, race questions → result docs) that fixed a measured
+  popular-entity ranking failure.
+- 🎨 **Six per-category reply signatures** learned in the adapter — 🏎️
+  driver-cards, *"Lights out, {year} {GP}:"* recaps, *"Welcome to {circuit}"*,
+  *"Season {year} belonged to…"*, *"Constructors' crown…"*, *"Let's talk
+  racecraft:"* — plus a warm enthusiast persona for opinion questions.
+- 🧠 **Behavior-only QLoRA** (~13 M params) trained on counterfactually
+  randomized data, so grounding on retrieved context is the only strategy the
+  optimizer can learn — memorization is impossible by construction.
+- 📏 **Two benchmark harnesses** (grounding + factual A/B), resumable JSONL
+  runs, markdown scorecards — every claim in this README has a number behind it.
+- 💬 **Streaming Gradio chat**, custom "night race" theme, multi-turn history.
+- 🧩 **Modular `src/` package**, single config source of truth, 20 tests,
+  phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture
 
-Data flows left-to-right; the package layout mirrors the pipeline:
+One principle, two supply lines into the prompt:
 
 ```
-knowledge_base.py ─► data/raw ─► data/processed ─► QLoRA train ─► models/adapters
-                                                                       │
-                                          Gradio app ◄── inference ◄────┘
+                       KNOWLEDGE (retrieval)                 BEHAVIOR (weights)
+  Kaggle 1950-2024 ─► kb_builder ─► 2,270 fact docs      counterfactual dataset
+  OpenF1 (live grid) ──────────────► hybrid index ─┐      (signatures+grounding
+  curated rules ───────────────────► (dense+BM25   │       +persona, 0 facts)
+                                      +RRF+routing)│              │
+                                                   ▼              ▼
+   user question ─► query router ─► top-k facts ─► prompt ─► Gemma-3-1B 4-bit
+                                                            + LoRA adapter (2%)
+                                                                   │
+                                                    grounded, in-voice answer
 ```
 
 ```mermaid
 flowchart LR
-    KB[enthusiast_kb.py] --> RAW[data/raw JSON]
-    RAW --> VAL[validate_dataset.py]
-    VAL --> CLEAN[data/processed clean JSON]
-    CLEAN --> TRAIN[QLoRA SFTTrainer]
-    BASE[Gemma-3-1B 4-bit] --> TRAIN
-    TRAIN --> ADAPTER[models/adapters/pitgpt-lora]
-    ADAPTER --> INF[inference engine]
-    BASE --> INF
-    INF --> APP[Gradio chat UI]
+    KGL[Kaggle 1950-2024] --> KB[kb_builder: 2270 atomic docs]
+    OF1[OpenF1 live] --> KB
+    CUR[curated rules] --> KB
+    KB --> IDX[hybrid index: dense+BM25+RRF]
+    Q[user question] --> RT[query router]
+    RT --> IDX
+    IDX --> P[prompt builder]
+    FD[final_dataset: counterfactual behavior rows] --> TR[QLoRA SFTTrainer]
+    TR --> AD[adapter ~13M params]
+    P --> G[Gemma-3-1B 4-bit + adapter]
+    AD --> G
+    G --> A[grounded, signature-styled answer]
 ```
 
 ## Folder structure
@@ -118,24 +152,29 @@ python scripts/check_gpu.py
 > If bitsandbytes misbehaves, train in WSL2/Colab and run inference on Windows, or
 > drop to plain LoRA (no 4-bit).
 
-## Dataset
+## The training data: behavior, not facts
 
-Authored by hand in `src/pitgpt/data/enthusiast_kb.py` — **~127 distinct
-conversations** across driver comparisons, teams, race strategy, tyres, historic
-races, regulations, technical concepts, beginner explanations, fun debates and
-general chat. `build_dataset.py` expands them (with light phrasing variety) into
-**~760 style-teaching examples** (~127 unique, ~110-word responses);
-`validate_dataset.py` checks JSON/schema, removes malformed/duplicate rows, and
-prints statistics.
+The final training set (`final_dataset.py` + `build_final.py`, 2,144 rows)
+teaches exactly three behaviors — and is engineered so facts *cannot* be learned:
+
+1. **Grounding** — every factual row is **counterfactually randomized**: drivers
+   paired with wrong teams, races with wrong winners, always matching the
+   provided context. A model can't memorize randomized pairings, so gradient
+   descent's only winning strategy is *reading the context*. (This single trick
+   took context-following from 0% to 100% on entity questions.)
+2. **Signature styles** — each category's reply shape, rendered *from* the
+   context, never from memory.
+3. **Honesty** — missing-context → say so; context about a different entity →
+   don't echo the wrong fact.
+
+Plus **127 hand-written enthusiast conversations** (`enthusiast_kb.py`) for the
+opinion/chat persona. Facts live exclusively in the retrieval corpus
+(`rag/kb_builder.py`), where recall is lossless.
 
 ```bash
-python scripts/build_dataset.py     # build raw + validate → data/processed clean set
+python -m pitgpt.data.build_final    # behavior dataset → data/raw + validation
+python scripts/build_rag.py          # knowledge corpus → hybrid index
 ```
-
-Design philosophy (per spec): we teach **communication style and personality, not
-facts** — the base model already knows F1. Responses are written **fact-safe**
-(broad, well-known history; no invented stats) so the model learns *how* to talk,
-not fabricated trivia.
 
 ## QLoRA explained
 
@@ -180,66 +219,71 @@ header (graceful fallback). Architecture in [`docs/phase6_notes.md`](docs/phase6
 >         wrong way to jump in; pick a driver or team that hooks you and go from there…
 > ```
 
-## RAG: knowledge from retrieval, personality from QLoRA
+## The retrieval stack
 
-The architecture separates responsibilities: **facts come from retrieval, voice
-comes from the adapter.** A curated evergreen corpus (`rag/facts.py`) plus live
-current-season data from the free [OpenF1 API](https://openf1.org)
-(`rag/openf1.py`) are embedded with MiniLM (`rag/index.py`, plain NumPy cosine —
-no vector DB needed at this scale) and the top-k facts are folded into the user
-turn at generation time.
+**Corpus** (`rag/kb_builder.py`): 2,270 **atomic fact documents** — one
+self-contained fact each (858 driver careers, ~1,125 Grand Prix winners, every
+Drivers' and Constructors' champion, 77 circuits, curated rules, the OpenF1
+live grid). Atomic docs eliminate chunking entirely and keep prompt injection
+compact (4 facts ≈ 120 tokens).
 
-```
-question ─► retriever (curated + OpenF1) ─► top-k facts ─► prompt builder
-                                                              │
-                     Gemma-3-1B (4-bit) + persona adapter ◄───┘
-                                     │
-                            grounded, in-voice answer
-```
+**Hybrid ranking** (`rag/index.py`): MiniLM dense embeddings catch meaning;
+BM25 catches exact tokens — "2016" and "2021" embed almost identically, which
+is precisely how dense-only retrieval confused champion years. Both rankings
+fuse via **reciprocal rank fusion** (K=60) with a relevance gate.
 
-**The key engineering insight:** prompting alone couldn't make the persona-tuned
-model use retrieved context — it had been *trained* to answer from memory. The
-fix was in the training data: **counterfactual grounding examples** with
-randomized fact pairings (a driver paired with a different team per example,
-always matching the context). The model cannot memorize its way through those, so
-it *must* learn to read the context. Missing-context examples teach honest
-"I don't know", and wrong-entity traps teach it not to echo the wrong fact.
+**Query routing** (`rag/retriever.py`): a measured failure — popular drivers
+have ~90 race-winner docs that flooded ranking and buried their bio doc (the
+benchmark's popularity gradient *inverted*: Schumacher scored worse than
+backmarkers). Routing question types to doc families (driver → bios, "who won
+the {year} GP" → race docs) fixed it: popular-tier accuracy 5% → 30%.
 
 ```bash
-python scripts/build_rag.py        # build/refresh the fact index (curated + OpenF1)
-python scripts/eval_grounding.py   # run the 105-case grounding benchmark
+python scripts/build_rag.py               # rebuild corpus + hybrid index
+python scripts/eval_grounding.py          # 105-case grounding benchmark
+python scripts/eval_facts.py --tag cb     # 90-case factual A/B: closed-book
+python scripts/eval_facts.py --tag rag --rag   #                 vs end-to-end
 ```
 
 ## Evaluation
 
-**Grounding benchmark** (105 deterministic cases; entity cases use counterfactual
-pairings so a pass *proves* the model read the context):
+**The headline A/B** — identical 90 cases (held-out phrasings, gold from the
+historical tables), one flag between architectures:
 
-| Category | v1 adapter | v2 adapter |
+| Metric | Facts-in-weights | **Facts-from-retrieval** |
 |---|---|---|
-| Entity grounding | 100% | **100%** |
-| Descriptive detail | 90% | **100%** |
-| Missing-context honesty | 75% | **85%** |
-| Synthesis (compare facts) | 80% | **80%** |
-| Persona retention | 100% | **100%** |
-| **Overall** | 90% | **94%** |
-| **Hallucination rate** | 3.8% | **2.9%** |
+| Overall (strict substring) | 22% | **51%** |
+| Champions by year | 30% | **83%** |
+| Career win counts | 20% | **50%** |
+| Confident-wrong answers | 78% | **44%** |
 
-Before this work the model ignored retrieved context entirely (it answered
-"Which team does Lando Norris drive for?" with generalities despite the fact
-being in the prompt). Reports live in `src/pitgpt/evaluation/`.
+Strict scoring understates the RAG side (team-name aliases like "Lotus F1" vs
+"Team Lotus" count as contamination); soft recall on team histories is ~60%
+under both, but retrieval's answers contain fewer fabricated teams.
 
-`scripts/evaluate.py` additionally runs a 20-prompt base-vs-fine-tuned style
-comparison (`evaluation_report.md`); method and honest limitations in
-[`docs/phase5_notes.md`](docs/phase5_notes.md).
+**Grounding benchmark** (105 cases; counterfactual pairings, so a pass *proves*
+context-reading): **94% overall, 2.9% hallucination**, entity grounding 100%,
+persona retention 100%. **Signature adherence**: ~98% measured with gold
+context. Every report is committed under `src/pitgpt/evaluation/`.
+
+**The journey, as measurements** (each pivot was driven by a number):
+
+| Experiment | Result | Decision |
+|---|---|---|
+| 50 epochs on style data | output collapsed ("system system…") | early stopping, ~1-2 epochs |
+| facts fine-tuned into 360M → 1B | fluent hallucination | bigger base helps style, not facts |
+| persona adapter + naive RAG | retrieved facts ignored | grounding must be *trained* |
+| counterfactual grounding data | context-following 0% → 100% | behavior-in-weights works |
+| closed-book facts, 5,084 rows | 22% strict, 78% confident-wrong | knowledge moves to retrieval |
+| hybrid RAG + routing + behavior adapter | **51% strict, 44% confident-wrong** | the shipped architecture |
 
 ## Future work
 
-- Better property-synthesis examples (the one remaining weak benchmark category).
-- A cross-encoder reranker and query rewriting for retrieval quality at scale.
-- Expand the fact corpus (Kaggle historical results → generated fact documents).
-- Multi-turn strategy dialogues (stint planning across several exchanges).
-- Export a merged model and/or GGUF for `llama.cpp` CPU inference.
+- GP-winner conflation under multi-candidate contexts (flat at 45%) — a
+  cross-encoder reranker or year-filtered retrieval is the next lever.
+- Alias normalization in scoring and corpus (Lotus/Team Lotus/Lotus F1).
+- Signature coverage for team-history and win-count answer shapes.
+- Multi-turn grounded dialogues; GGUF export for CPU inference.
 
 ## License
 
