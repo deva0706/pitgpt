@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -144,11 +145,19 @@ def build_cases(seed: int = 11) -> list[FactCase]:
     return cases
 
 
+def _team_mentioned(team: str, text: str) -> bool:
+    """Word-boundary match. Plain substring is wrong here: the Kaggle
+    constructor table contains short names like "RE" and "RB" that substring-
+    match inside ordinary words ("raced", "here"), flagging phantom
+    hallucinations on fully correct answers."""
+    return re.search(r"\b" + re.escape(team.lower()) + r"\b", text) is not None
+
+
 def score_case(case: FactCase, answer: str) -> dict:
     low = answer.lower()
     if case.category == "driver_teams":
-        hit = [g for g in case.gold if g.lower() in low]
-        wrong = [w for w in case.wrong_pool if w.lower() in low]
+        hit = [g for g in case.gold if _team_mentioned(g, low)]
+        wrong = [w for w in case.wrong_pool if _team_mentioned(w, low)]
         passed = len(hit) >= max(1, len(case.gold) // 2) and not wrong
         hallucinated = bool(wrong)
     else:

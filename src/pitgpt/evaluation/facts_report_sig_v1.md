@@ -5,16 +5,16 @@ Cases: 90 · held-out phrasings · gold from Kaggle tables
 | Category | Cases | Accuracy | Signature adherence |
 |---|---|---|---|
 | champion_year | 30 | 30% | 100% |
-| driver_teams | 30 | 0% | 100% |
+| driver_teams | 30 | 3% | 100% |
 | gp_winner | 20 | 45% | 100% |
 | win_count | 10 | 20% | 80% |
-| **overall** | 90 | 22% | 98% |
+| **overall** | 90 | 23% | 98% |
 
 ## Memorization gradient (driver questions by popularity)
 
 | Tier | Cases | Accuracy |
 |---|---|---|
-| popular | 20 | 10% |
+| popular | 20 | 15% |
 | mid | 10 | 0% |
 | longtail | 10 | 0% |
 
@@ -27,4 +27,4 @@ Cases: 90 · held-out phrasings · gold from Kaggle tables
 - **[driver_teams/popular]** What teams did Jenson Button race for over his F1 career? → gold `['Honda', 'BAR', 'Renault']` → _🏎️ Jenson Button — team history: Williams → BAR → Honda → Renault → Brawn → BMW Sauber → Lotus → McLaren.…_
 - **[driver_teams/popular]** What teams did Michael Schumacher race for over his F1 career? → gold `['Ferrari', 'Benetton', 'Jordan']` → _🏎️ Michael Schumacher — team history: Benetton → Ferrari → Williams → Mercedes.…_
 - **[driver_teams/popular]** What teams did Sebastian Vettel race for over his F1 career? → gold `['Toro Rosso', 'BMW Sauber', 'Red Bull']` → _🏎️ Sebastian Vettel — team history: Red Bull → BMW Sauber → Toro Rosso → Ferrari → Aston Martin → Mercedes.…_
-- **[driver_teams/popular]** What teams did Sergio Pérez race for over his F1 career? → gold `['Sauber', 'McLaren', 'Force India']` → _🏎️ Sergio Pérez — team history: Sauber → Force India → Racing Point → Red Bull.…_
+- **[driver_teams/popular]** What teams did Felipe Massa race for over his F1 career? → gold `['Ferrari', 'Sauber', 'Williams']` → _🏎️ Felipe Massa — team history: Ferrari → Williams → Sauber → Renault → Alfa Romeo → Lotus F1 Team → Maserati → BAR-Maserati → Hon…_

@@ -8,14 +8,14 @@
 PitGPT answers like an enthusiastic F1 friend, in **six distinctive per-category
 reply styles**, grounding every fact in a **2,270-document knowledge base**
 covering all 75 years of the sport — because we *measured* that a 1B model
-storing facts in its weights tops out at **22% accuracy**, and redesigned the
+storing facts in its weights tops out at **23% accuracy**, and redesigned the
 system around that finding instead of fighting it.
 
 **The one-line story:** we tried facts-in-weights, benchmarked the failure,
 moved knowledge to retrieval, retrained the adapter for *behavior only*
 (persona + grounding + styles, with counterfactual data that makes memorization
-impossible) — and the same 90-case benchmark went **22% → 51% strict accuracy,
-with confident-wrong answers cut from 78% → 44%**.
+impossible) — and the same 90-case benchmark went **23% → 61% strict accuracy,
+with confident-wrong answers cut from 77% → 32%**.
 
 ---
 
@@ -36,13 +36,14 @@ Small language models are excellent at *behavior* and terrible at being
 
 | Architecture | Overall (strict) | Champions | Confident-wrong |
 |---|---|---|---|
-| Facts fine-tuned into weights (closed-book) | 22% | 30% | 78% |
-| **Facts from hybrid RAG, behavior-only adapter** | **51%** | **83%** | **44%** |
+| Facts fine-tuned into weights (closed-book) | 23% | 30% | 77% |
+| **Facts from hybrid RAG, behavior-only adapter** | **61%** | **93%** | **32%** |
 
 Same base model, same GPU, same benchmark — the only change is *where knowledge
-lives*. Meanwhile behavior-in-weights works beautifully: the six reply
-signatures hold at ~98% when measured in isolation, and grounding behavior
-(trained with counterfactual data) scores 94% with gold context.
+lives*. Meanwhile behavior-in-weights mostly works: the six reply signatures
+hold at ~98% when measured in isolation, and entity grounding with gold context
+is 100% — though the behavior-only retrain *lost* the "admit when the context
+doesn't cover it" reflex (see [Evaluation](#evaluation) for the honest numbers).
 
 - **Base model:** google/gemma-3-1b-it (gated — one-time `huggingface-cli login`)
 - **Adapter:** ~13 M trainable params (~2%) — persona, grounding, styles; zero facts
@@ -252,19 +253,24 @@ historical tables), one flag between architectures:
 
 | Metric | Facts-in-weights | **Facts-from-retrieval** |
 |---|---|---|
-| Overall (strict substring) | 22% | **51%** |
-| Champions by year | 30% | **83%** |
-| Career win counts | 20% | **50%** |
-| Confident-wrong answers | 78% | **44%** |
+| Overall (strict, word-boundary) | 23% | **61%** |
+| Champions by year | 30% | **93%** |
+| Driver team histories | 3% | **47%** |
+| Career win counts | 20% | **40%** |
+| Confident-wrong answers | 77% | **32%** |
 
-Strict scoring understates the RAG side (team-name aliases like "Lotus F1" vs
-"Team Lotus" count as contamination); soft recall on team histories is ~60%
-under both, but retrieval's answers contain fewer fabricated teams.
+Scoring uses word-boundary matching (a plain-substring scorer flagged phantom
+hallucinations — the Kaggle constructor table contains a team named "RE", which
+substring-matches inside "raced"). Team-name aliases ("Lotus F1" vs "Team
+Lotus") still make strict scoring conservative on the RAG side.
 
 **Grounding benchmark** (105 cases; counterfactual pairings, so a pass *proves*
-context-reading): **94% overall, 2.9% hallucination**, entity grounding 100%,
-persona retention 100%. **Signature adherence**: ~98% measured with gold
-context. Every report is committed under `src/pitgpt/evaluation/`.
+context-reading), re-measured on the **shipped behavior-only adapter**: 72%
+overall, 18.1% hallucination. Entity grounding and persona retention hold at
+100%, but missing-context honesty collapsed to **5%** (the earlier
+grounding-focused adapter scored 85% there / 94% overall — the behavior-only
+retrain traded away the decline reflex). **Signature adherence**: ~98% measured
+closed-book. Every report is committed under `src/pitgpt/evaluation/`.
 
 **The journey, as measurements** (each pivot was driven by a number):
 
@@ -274,11 +280,14 @@ context. Every report is committed under `src/pitgpt/evaluation/`.
 | facts fine-tuned into 360M → 1B | fluent hallucination | bigger base helps style, not facts |
 | persona adapter + naive RAG | retrieved facts ignored | grounding must be *trained* |
 | counterfactual grounding data | context-following 0% → 100% | behavior-in-weights works |
-| closed-book facts, 5,084 rows | 22% strict, 78% confident-wrong | knowledge moves to retrieval |
-| hybrid RAG + routing + behavior adapter | **51% strict, 44% confident-wrong** | the shipped architecture |
+| closed-book facts, 5,084 rows | 23% strict, 77% confident-wrong | knowledge moves to retrieval |
+| hybrid RAG + routing + behavior adapter | **61% strict, 32% confident-wrong** | the shipped architecture |
 
 ## Future work
 
+- **Restore missing-context refusals** (85% → 5% after the behavior-only
+  retrain): add decline-when-ungrounded examples back into the training mix —
+  it's a behavior, so by this project's own thesis it belongs in the weights.
 - GP-winner conflation under multi-candidate contexts (flat at 45%) — a
   cross-encoder reranker or year-filtered retrieval is the next lever.
 - Alias normalization in scoring and corpus (Lotus/Team Lotus/Lotus F1).
