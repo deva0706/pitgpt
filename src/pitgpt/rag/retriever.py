@@ -64,8 +64,37 @@ def _route(query: str) -> list[str] | None:
     return None
 
 
+# F1-content cue: a year, a proper-noun-ish capitalized word mid-sentence, or a
+# domain keyword. Conversational turns ("Yes tell me.", "thanks!", "haha ok")
+# have none of these — retrieval must stay SILENT there, or the grounding-trained
+# model will faithfully recite whatever irrelevant doc comes back.
+_F1_KEYWORDS = re.compile(
+    r"\b(19[5-9]\d|20[0-2]\d)\b"                       # a season year
+    r"|driver|team|race|grand prix|\bgp\b|champion|title|circuit|track|tyre|"
+    r"tire|pit\b|drs|ers|qualifying|pole|overtak|constructor|f1|formula|season|"
+    r"\bwins?\b|podium|engine|aero|downforce|strategy|safety car|\blaps?\b",
+    re.I,
+)
+# Case-SENSITIVE on purpose: with re.I, [A-Z][a-z]+ matches any word pair
+# ("Yes tell", "am new") and the conversational bypass never fires.
+_NAME_CUE = re.compile(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b")
+
+
+def _is_conversational(query: str) -> bool:
+    """True for turns that carry no F1 content worth retrieving for."""
+    q = query.strip()
+    return not (_F1_KEYWORDS.search(q) or _NAME_CUE.search(q))
+
+
 def retrieve_facts(query: str, k: int = 4) -> list[dict]:
-    """Return the top-k relevant fact documents (empty if no index)."""
+    """Return the top-k relevant fact documents (empty if no index).
+
+    Conversational turns ("Yes tell me.", "thanks!") bypass retrieval entirely —
+    a grounding-trained model will otherwise faithfully recite whatever
+    irrelevant doc a contentless query happens to match.
+    """
+    if _is_conversational(query):
+        return []
     retriever = _get_retriever()
     if not retriever:
         return []

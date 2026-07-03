@@ -155,8 +155,12 @@ class FactRetriever:
         results = []
         for i in sorted(fused, key=fused.get, reverse=True):
             dense, lexical = float(dense_scores[i]), float(bm25_scores[i])
-            if dense < min_score and lexical <= 0.0:
-                continue    # neither ranker found it relevant
+            # Stricter gate: BM25 gives small nonzero scores for stopword-ish
+            # overlap, which previously let contentless queries drag in random
+            # docs (grounded non-sequiturs). Require a real signal from at
+            # least one ranker.
+            if dense < min_score and lexical < 2.0:
+                continue
             results.append({**self._docs[i], "score": round(fused[i], 4),
                             "dense": round(dense, 3), "bm25": round(lexical, 2)})
             if len(results) >= k:
