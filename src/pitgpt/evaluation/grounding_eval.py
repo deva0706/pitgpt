@@ -53,6 +53,8 @@ ADMISSION_PHRASES = (
     "don't know", "do not know", "don't have", "do not have", "can't see",
     "cannot see", "not in the facts", "isn't in", "is not in", "won't guess",
     "not sure from", "don't have that",
+    # the trained decline template (templates.py)
+    "box, box", "not in my notes",
 )
 
 DRIVERS = [

@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pitgpt.config import settings
+from pitgpt.data.templates import adheres
 from pitgpt.data.fact_dataset import (
     _career_facts,
     _load_tables,
@@ -49,7 +50,7 @@ class FactCase:
     question: str
     gold: list[str]        # substrings that should appear (any-of unless noted)
     wrong_pool: list[str] = field(default_factory=list)   # for hallucination flags
-    signature: str = ""    # expected reply opening
+    signature: str = ""    # templates.py format category for adherence scoring
 
 
 def _tiered_drivers(t: dict) -> dict[str, list[str]]:
@@ -116,7 +117,7 @@ def build_cases(seed: int = 11) -> list[FactCase]:
                 gold=gold_teams,
                 wrong_pool=[x for x in all_teams
                             if x not in gold_teams and x not in now_teams],
-                signature="🏎️",
+                signature="driver_card",
             ))
             picked += 1
 
@@ -127,7 +128,7 @@ def build_cases(seed: int = 11) -> list[FactCase]:
             category="champion_year", tier="n/a",
             question=f"Which driver took the F1 title in {year}?",
             gold=[champs[year].split()[-1]],           # surname is enough
-            signature="Season",
+            signature="championship",
         ))
 
     # --- GP winners (20, sampled, held-out phrasing) ---
@@ -136,7 +137,7 @@ def build_cases(seed: int = 11) -> list[FactCase]:
             category="gp_winner", tier="n/a",
             question=f"Who crossed the line first at the {year} {gp}?",
             gold=[winner.split()[-1]],
-            signature="Lights out",
+            signature="race_winner",
         ))
 
     # --- win counts (10 popular winners, held-out phrasing) ---
@@ -149,7 +150,7 @@ def build_cases(seed: int = 11) -> list[FactCase]:
             category="win_count", tier="popular",
             question=f"What's {f['name']}'s career Grand Prix win tally?",
             gold=[str(f["wins"])],
-            signature="🏎️",
+            signature="win_count",
         ))
         picked += 1
 
@@ -188,7 +189,7 @@ def score_case(case: FactCase, answer: str) -> dict:
     return {
         "passed": passed,
         "hallucinated": hallucinated,
-        "signature_ok": answer.strip().startswith(case.signature),
+        "signature_ok": adheres(case.signature, answer),
     }
 
 
