@@ -66,17 +66,38 @@ def driver_docs(t: dict, champ_years: dict[str, list[int]]) -> list[dict]:
 
 
 def race_winner_docs(t: dict) -> list[dict]:
-    docs = []
+    """One doc per Grand Prix: winner + team, pole sitter, and podium — the
+    detail lines the reply formats need ("...Pole to flag... podium completed
+    by...") come straight from retrieval, not model memory."""
+    by_race: dict[str, list[dict]] = defaultdict(list)
     for r in t["results"]:
-        if r.get("positionText") != "1":
+        by_race[r["raceId"]].append(r)
+    docs = []
+    for race_id, rs in by_race.items():
+        race = t["races"].get(race_id)
+        if not race:
             continue
-        race = t["races"].get(r["raceId"])
-        d = t["drivers"].get(r["driverId"])
-        team = t["constructors"].get(r["constructorId"], "")
-        if not race or not d:
+        podium: dict[str, tuple[str, str]] = {}
+        pole = None
+        for r in rs:
+            d = t["drivers"].get(r["driverId"])
+            if not d:
+                continue
+            if r.get("positionText") in ("1", "2", "3"):
+                podium[r["positionText"]] = (
+                    _name(d), t["constructors"].get(r["constructorId"], ""))
+            if r.get("grid") == "1":
+                pole = _name(d)
+        if "1" not in podium:
             continue
-        text = f"The {race['year']} {race['name']} was won by {_name(d)}"
+        winner, team = podium["1"]
+        text = f"The {race['year']} {race['name']} was won by {winner}"
         text += f", driving for {team}." if team else "."
+        if pole:
+            text += f" Pole position: {pole}."
+        rest = [podium[p][0] for p in ("2", "3") if p in podium]
+        if rest:
+            text += f" Podium completed by {' and '.join(rest)}."
         docs.append(_doc(text, "kaggle_race"))
     return docs
 

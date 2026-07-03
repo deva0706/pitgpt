@@ -19,7 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from pitgpt.config import settings
-from pitgpt.evaluation.facts_eval import FactCase, build_cases
+from pitgpt.evaluation.facts_eval import FactCase, build_cases, wrong_team_hits
 
 logger = logging.getLogger("pitgpt.eval.retrieval")
 
@@ -45,12 +45,15 @@ def run_eval(tag: str = "retrieval", k: int = 4) -> Path:
     for idx, case in enumerate(cases):
         docs = retrieve_facts(case.question, k=k)
         context = "\n".join(d.get("text", "") for d in docs)
+        low = context.lower()
         rows.append({
             "idx": idx, "category": case.category, "tier": case.tier,
             "question": case.question, "gold": case.gold,
             "n_docs": len(docs),
             "sources": sorted({d.get("source", "?") for d in docs}),
             "hit": gold_in_context(case, context),
+            # precision: distractor facts sharing the context confuse recitation
+            "wrong_in_ctx": len(wrong_team_hits(case, low)),
             "context": context[:400],
         })
 
@@ -62,12 +65,20 @@ def run_eval(tag: str = "retrieval", k: int = 4) -> Path:
     for r in rows:
         by_cat[r["category"]].append(r)
     lines = [f"# Retrieval hit-rate — `{tag}` (k={k})", "",
-             "Gold answer present in retrieved context (LLM not involved).", "",
-             "| Category | Cases | Hit-rate |", "|---|---|---|"]
+             "Gold answer present in retrieved context (LLM not involved).",
+             "'Clean' = no distractor entities from the wrong-pool in context.", "",
+             "| Category | Cases | Hit-rate | Clean contexts | Avg docs |",
+             "|---|---|---|---|---|"]
     for cat, sub in sorted(by_cat.items()):
-        lines.append(f"| {cat} | {len(sub)} | {sum(r['hit'] for r in sub)/len(sub):.0%} |")
+        clean = sum(1 for r in sub if r["wrong_in_ctx"] == 0)
+        avg_docs = sum(r["n_docs"] for r in sub) / len(sub)
+        lines.append(f"| {cat} | {len(sub)} | {sum(r['hit'] for r in sub)/len(sub):.0%} "
+                     f"| {clean/len(sub):.0%} | {avg_docs:.1f} |")
+    clean_all = sum(1 for r in rows if r["wrong_in_ctx"] == 0)
     lines.append(f"| **overall** | {len(rows)} | "
-                 f"{sum(r['hit'] for r in rows)/len(rows):.0%} |")
+                 f"{sum(r['hit'] for r in rows)/len(rows):.0%} "
+                 f"| {clean_all/len(rows):.0%} "
+                 f"| {sum(r['n_docs'] for r in rows)/len(rows):.1f} |")
     lines += ["", "## Misses", ""]
     for r in [r for r in rows if not r["hit"]][:12]:
         lines.append(f"- **[{r['category']}]** {r['question']} → gold `{r['gold'][:3]}` "

@@ -5,18 +5,18 @@ Cases: 90 · held-out phrasings · gold from Kaggle tables
 | Category | Cases | Accuracy | Signature adherence |
 |---|---|---|---|
 | champion_year | 30 | 93% | 80% |
-| driver_teams | 30 | 47% | 0% |
+| driver_teams | 30 | 53% | 0% |
 | gp_winner | 20 | 45% | 100% |
 | win_count | 10 | 40% | 0% |
-| **overall** | 90 | 61% | 49% |
+| **overall** | 90 | 63% | 49% |
 
 ## Memorization gradient (driver questions by popularity)
 
 | Tier | Cases | Accuracy |
 |---|---|---|
 | popular | 20 | 35% |
-| mid | 10 | 80% |
-| longtail | 10 | 30% |
+| mid | 10 | 90% |
+| longtail | 10 | 40% |
 
 ## Sample failures
 

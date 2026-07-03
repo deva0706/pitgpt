@@ -14,11 +14,13 @@ Status log, commits, reschedules. Training only in ≤10-min foreground chunks
       cases whose gold answer appears in the retrieved context. Baseline number
       logged before any changes. **DONE — 100% recall; bottleneck is context
       PRECISION (28/30 team contexts polluted with wrong teams) + recitation.**
-- [ ] 1.2 Career-summary doc per driver (name, ALL teams with years, win tally,
-      titles) in `kb_builder.py`, source `kaggle_career`.
-- [ ] 1.3 Race-result doc per GP (year, name, winner, team, pole, podium),
-      source `kaggle_race` (replaces/enriches current race docs).
-- [ ] 1.4 Alias normalization pass (constructor display names → Kaggle gold).
+- [x] 1.2 Career-summary docs — existing driver bios already carry full team
+      list + wins + titles; precision achieved via ENTITY PINNING in
+      `retriever.py` instead (query names driver/year/GP → keep only matching
+      docs; falls back if filter empties, so recall can't regress).
+- [x] 1.3 Race-result doc per GP enriched with pole + podium (kb_builder).
+- [x] 1.4 Alias collisions fixed on the SCORING side: mask gold teams before
+      wrong-pool check ("BMW Sauber" no longer triggers wrong-team "Sauber").
 - [ ] 1.5 Recent seasons 2024–26 + current grid via Jolpica/OpenF1 download;
       cached to `data/knowledge/` so later runs are offline.
 - [ ] 1.6 Curated rules/tech docs (DRS, ERS, points, sprint, eras, flags).
@@ -64,3 +66,9 @@ Status log, commits, reschedules. Training only in ≤10-min foreground chunks
   PRECISION plays (one authoritative doc per entity, routed deterministically,
   possibly k=1–2 for entity questions); the biggest single lever is Phase 2
   grounded-recitation training in the new formats.
+- 2026-07-03 ~23:50 — 1.2–1.4 done. Entity pinning + enriched race docs +
+  gold-masking scorer fix. Retrieval: 100% recall, 98% clean, 1.3 docs avg.
+  **End-to-end facts 63% → 78% with the SAME adapter, no training** —
+  champions 100%, gp_winner 75%, teams 67%, win_count 50%. Remaining gap to
+  90% is recitation fidelity + formats → Phase 2/3. Next: 1.5–1.6 data
+  expansion, then training data.

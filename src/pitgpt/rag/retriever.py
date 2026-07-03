@@ -86,6 +86,40 @@ def _is_conversational(query: str) -> bool:
     return not (_F1_KEYWORDS.search(q) or _NAME_CUE.search(q))
 
 
+# --- entity pinning: precision, not recall -------------------------------- #
+# Measured (retrieval_report_baseline): recall is 100% at k=4, but 28/30
+# driver-team contexts also carried WRONG teams from neighbouring docs, and the
+# model can't tell which facts belong to the asked entity. When the query names
+# a specific entity (full driver name, season year, "<X> Grand Prix"), keep
+# only the retrieved docs that mention it. Each filter is applied only if it
+# leaves at least one doc, so recall can't drop below the unpinned baseline.
+_PIN_NAME = re.compile(r"\b[A-Z][a-zà-ÿ\-]+(?: [A-Z][a-zà-ÿ\-]+)+\b")
+_PIN_YEAR = re.compile(r"\b(19[5-9]\d|20[0-2]\d)\b")
+_PIN_GP = re.compile(r"\b[A-Z][a-zà-ÿ]+(?: [A-Z][a-zà-ÿ]+)* Grand Prix\b")
+
+
+def _fold(s: str) -> str:
+    """Accent-insensitive lowercase ("Pérez" and "Perez" must both pin)."""
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", s.lower())
+                   if unicodedata.category(c) != "Mn")
+
+
+def _pin(query: str, results: list[dict]) -> list[dict]:
+    def keep(docs: list[dict], pred) -> list[dict]:
+        kept = [d for d in docs if pred(_fold(d.get("text", "")))]
+        return kept or docs
+    for year in _PIN_YEAR.findall(query):
+        results = keep(results, lambda t, y=year: re.search(r"\b" + y + r"\b", t))
+    gp = _PIN_GP.search(query)
+    if gp:
+        results = keep(results, lambda t, g=_fold(gp.group(0)): g in t)
+    names = [_fold(n) for n in _PIN_NAME.findall(query)]
+    if names:
+        results = keep(results, lambda t: any(n in t for n in names))
+    return results
+
+
 def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     """Return the top-k relevant fact documents (empty if no index).
 
@@ -102,7 +136,7 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     results = retriever.retrieve(query, k=k, sources=sources)
     if not results and sources:
         results = retriever.retrieve(query, k=k)   # routed miss -> open fallback
-    return results
+    return _pin(query, results)
 
 
 def retrieve_context(query: str, k: int = 4) -> str:

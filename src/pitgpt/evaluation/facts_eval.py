@@ -153,11 +153,22 @@ def _team_mentioned(team: str, text: str) -> bool:
     return re.search(r"\b" + re.escape(team.lower()) + r"\b", text) is not None
 
 
+def wrong_team_hits(case: FactCase, text_low: str) -> list[str]:
+    """Wrong-pool mentions AFTER masking gold teams. A driver's own correct
+    team names can contain wrong-pool teams as substrings ("BMW Sauber" ∋
+    "Sauber", "Brabham-Ford" ∋ "Ford"), so a perfect recitation would
+    otherwise score as a hallucination."""
+    masked = text_low
+    for g in sorted(case.gold, key=len, reverse=True):
+        masked = re.sub(r"\b" + re.escape(g.lower()) + r"\b", " ", masked)
+    return [w for w in case.wrong_pool if _team_mentioned(w, masked)]
+
+
 def score_case(case: FactCase, answer: str) -> dict:
     low = answer.lower()
     if case.category == "driver_teams":
         hit = [g for g in case.gold if _team_mentioned(g, low)]
-        wrong = [w for w in case.wrong_pool if _team_mentioned(w, low)]
+        wrong = wrong_team_hits(case, low)
         passed = len(hit) >= max(1, len(case.gold) // 2) and not wrong
         hallucinated = bool(wrong)
     else:
