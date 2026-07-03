@@ -10,9 +10,10 @@ Status log, commits, reschedules. Training only in ≤10-min foreground chunks
 
 ## Phase 1 — Corpus makes every answer findable (no GPU)
 
-- [ ] 1.1 Retrieval-only harness `scripts/eval_retrieval.py`: % of the 90 facts
+- [x] 1.1 Retrieval-only harness `scripts/eval_retrieval.py`: % of the 90 facts
       cases whose gold answer appears in the retrieved context. Baseline number
-      logged before any changes.
+      logged before any changes. **DONE — 100% recall; bottleneck is context
+      PRECISION (28/30 team contexts polluted with wrong teams) + recitation.**
 - [ ] 1.2 Career-summary doc per driver (name, ALL teams with years, win tally,
       titles) in `kb_builder.py`, source `kaggle_career`.
 - [ ] 1.3 Race-result doc per GP (year, name, winner, team, pole, podium),
@@ -56,3 +57,10 @@ Status log, commits, reschedules. Training only in ≤10-min foreground chunks
 - 2026-07-03 ~21:50 — Plan created. Baselines: facts 61% strict / 32%
   confident-wrong; grounding 72% / 18.1% halluc (declines 5%); signature
   adherence 49% (old formats). Corpus 2,270 docs.
+- 2026-07-03 ~23:40 — 1.1 done. **Retrieval recall is already 100%** on all 90
+  cases — the 61%→90% gap is generation, not search. But precision is bad:
+  28/30 driver_teams contexts carry ≥1 wrong team among the k=4 docs (same
+  conflation expected for gp_winner). Re-weighted plan: 1.2/1.3/1.8 are
+  PRECISION plays (one authoritative doc per entity, routed deterministically,
+  possibly k=1–2 for entity questions); the biggest single lever is Phase 2
+  grounded-recitation training in the new formats.
