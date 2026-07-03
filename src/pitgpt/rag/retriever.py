@@ -43,16 +43,17 @@ import re
 # over race phrasing ("who won the 2016 championship" is not a race question).
 _ROUTES: list[tuple[re.Pattern, list[str]]] = [
     (re.compile(r"constructor", re.I), ["kaggle_constructors", "curated"]),
-    (re.compile(r"champion|title", re.I), ["kaggle_champion", "curated"]),
+    (re.compile(r"champion|title", re.I),
+     ["kaggle_champion", "jolpica_champion", "curated"]),
     # Driver-centric phrasings outrank the race route: "career Grand Prix win
     # tally" is a question about a DRIVER even though it contains "Grand Prix".
     (re.compile(r"who is|tell me about|rundown on|teams? did|drive for|race for|"
                 r"career|win tally|how many", re.I),
-     ["kaggle_driver", "curated", "openf1"]),
+     ["kaggle_driver", "jolpica_driver", "curated", "openf1"]),
     # A race question needs a winner-verb, not just the words "grand prix".
     (re.compile(r"(who won|winner|victory|took .*(flag|win)|crossed the line)"
                 r".*(grand prix|\bgp\b)", re.I),
-     ["kaggle_race"]),
+     ["kaggle_race", "jolpica_race"]),
     (re.compile(r"circuit|track\b|where is", re.I), ["kaggle_circuit", "curated"]),
 ]
 

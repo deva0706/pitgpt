@@ -21,13 +21,17 @@ Status log, commits, reschedules. Training only in ≤10-min foreground chunks
 - [x] 1.3 Race-result doc per GP enriched with pole + podium (kb_builder).
 - [x] 1.4 Alias collisions fixed on the SCORING side: mask gold teams before
       wrong-pool check ("BMW Sauber" no longer triggers wrong-team "Sauber").
-- [ ] 1.5 Recent seasons 2024–26 + current grid via Jolpica/OpenF1 download;
-      cached to `data/knowledge/` so later runs are offline.
-- [ ] 1.6 Curated rules/tech docs (DRS, ERS, points, sprint, eras, flags).
-- [ ] 1.7 Rebuild index; retrieval harness per category.
-- [ ] 1.8 Deterministic routing upgrades: year+GP filter for race queries,
-      driver-name filter for career/tally queries. Iterate until retrieval
-      hit-rate ≥95% overall.
+- [x] 1.5 Jolpica module (`rag/jolpica.py`): 2024–26 races (pole+podium),
+      season driver–team docs, completed-season champions. Paginated (API
+      clamps limit to 100 rows), cached to `data/knowledge/jolpica/`, deduped
+      against Kaggle. +100 docs → corpus 2,381. Benchmark vintage guard:
+      current-true teams removed from wrong-pool via `recent_teams()`.
+- [x] 1.6 +15 curated rules/tech docs (halo, parc fermé, qualifying, sprint,
+      flags, penalties, 107%, power unit, records...). Hamilton doc updated
+      for the 2025 Ferrari move.
+- [x] 1.7 Index rebuilt; harness: 100% recall, 99% clean, 1.3 docs avg.
+- [x] 1.8 Routing includes jolpica families; entity pinning covers year/GP/
+      name. Hit-rate target (≥95%) exceeded. **PHASE 1 COMPLETE.**
 
 ## Phase 2 — Training data carries all behaviors (no GPU)
 

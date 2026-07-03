@@ -92,6 +92,15 @@ def build_cases(seed: int = 11) -> list[FactCase]:
 
     cases: list[FactCase] = []
 
+    # Vintage guard: Kaggle gold ends at 2024, but a driver's CURRENT team is
+    # a true answer, not a hallucination — drop demonstrably-recent teams
+    # (Jolpica 2024→) from the wrong-pool. Offline-safe (empty without cache).
+    try:
+        from pitgpt.rag.jolpica import recent_teams
+        recent = recent_teams()
+    except Exception:  # noqa: BLE001
+        recent = {}
+
     # --- driver -> teams (10 per tier, held-out phrasing) ---
     for tier, ids in tiers.items():
         picked = 0
@@ -100,11 +109,13 @@ def build_cases(seed: int = 11) -> list[FactCase]:
             if not f or not f["teams"] or picked >= 10:
                 continue
             gold_teams = list(f["teams"])
+            now_teams = recent.get(f["name"], set())
             cases.append(FactCase(
                 category="driver_teams", tier=tier,
                 question=f"What teams did {f['name']} race for over his F1 career?",
                 gold=gold_teams,
-                wrong_pool=[x for x in all_teams if x not in gold_teams],
+                wrong_pool=[x for x in all_teams
+                            if x not in gold_teams and x not in now_teams],
                 signature="🏎️",
             ))
             picked += 1

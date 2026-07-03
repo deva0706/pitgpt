@@ -18,7 +18,7 @@ from __future__ import annotations
 CURATED_FACTS: list[str] = [
     # ----- Championship records -----
     "Michael Schumacher won seven Formula 1 World Drivers' Championships (1994, 1995, and five in a row from 2000 to 2004), most of them with Ferrari. He holds a share of the record for most titles.",
-    "Lewis Hamilton has won seven Formula 1 World Drivers' Championships, tying Michael Schumacher's record. He holds the records for most race wins and most pole positions, and has driven for McLaren and Mercedes.",
+    "Lewis Hamilton has won seven Formula 1 World Drivers' Championships, tying Michael Schumacher's record. He holds the records for most race wins and most pole positions, and has driven for McLaren, Mercedes and, from 2025, Ferrari.",
     "Juan Manuel Fangio won five World Championships in the 1950s, a record that stood for decades and is still regarded as one of the greatest achievements in the sport.",
     "Alain Prost, nicknamed 'The Professor' for his calculated, tyre-savvy style, won four World Championships.",
     "Sebastian Vettel won four consecutive World Championships from 2010 to 2013 with Red Bull Racing.",
@@ -60,6 +60,21 @@ CURATED_FACTS: list[str] = [
     "A Safety Car neutralises a race by bunching the field behind it, which makes pit stops cheaper in relative time and often scrambles the order. A Virtual Safety Car (VSC) instead makes every driver slow to a set delta without a physical car on track.",
     "Formula 1 introduced a cost cap (budget cap) in 2021 that limits how much teams can spend on car performance, aiming to level the field and reward efficiency over sheer spending.",
     "A Formula 1 race weekend usually consists of practice sessions, a knockout qualifying (Q1, Q2, Q3) that sets the grid, and the race on Sunday. Some weekends also include a shorter sprint race.",
+
+    "The halo is a titanium head-protection structure above the cockpit, mandatory since 2018. It has been credited with saving several drivers from serious injury, including Romain Grosjean in his fiery 2020 Bahrain crash.",
+    "Refuelling during Formula 1 races has been banned since 2010; cars start with all the fuel they need, so pit stops are only for tyres (and repairs), typically taking two to three seconds.",
+    "Parc fermé rules lock a car's setup from the start of qualifying until the race, so teams cannot rebuild the car between the two; breaking parc fermé means starting from the pit lane.",
+    "Formula 1 qualifying is a three-stage knockout: Q1 eliminates the slowest five, Q2 the next five, and Q3 is a ten-car shootout for pole position — the first place on the starting grid.",
+    "A sprint is a shorter ~100 km Saturday race with no mandatory pit stop, held at selected Grands Prix. It awards points to the top eight (8 down to 1) and its result sets nothing for Sunday under the current format — the grid comes from regular qualifying.",
+    "Race control uses flags: yellow for danger (no overtaking), a red flag stops the session, blue tells a lapped car to let leaders through, black disqualifies a driver, and the chequered flag ends the race — 'getting the chequered flag' means winning or finishing.",
+    "Grid penalties are handed out for exceeding power-unit component allocations or for driving infringements; stewards can also give time penalties (5 or 10 seconds), drive-throughs, or stop-go penalties served in the pits.",
+    "The 107% rule requires a driver in Q1 to lap within 107% of the fastest Q1 time to be allowed to race, keeping dangerously slow cars off the grid.",
+    "The formation lap is the slow lap before the start on which drivers warm tyres and brakes and take their grid slots; jumping the start earns a penalty, detected by sensors in each grid box.",
+    "A modern Formula 1 power unit is a 1.6-litre V6 turbo-hybrid producing around 1,000 horsepower combined; cars weigh about 800 kg, pull over 5g in fast corners, and top ~350 km/h with DRS open.",
+    "An F1 steering wheel is a computer with dozens of controls — brake balance, differential, engine modes, ERS deployment, radio, DRS — and drivers adjust these settings every lap while racing.",
+    "F1 race distance is the fewest laps exceeding 305 km (Monaco excepted at ~260 km); races are capped at two hours of green-flag running (three including stoppages).",
+    "Blue-riband records in F1: most wins in a season, youngest champion (Sebastian Vettel, 23, in 2010), and most consecutive titles (Michael Schumacher's five, 2000-2004; matched in length by no one since).",
+    "Slipstreaming (towing) is following a car closely on a straight to sit in its low-drag wake and gain top speed — the classic overtaking aid alongside DRS; in corners the same wake becomes performance-sapping dirty air.",
 
     # ----- General / history -----
     "The Formula 1 World Championship began in 1950. It crowns two champions each year: the World Drivers' Championship and the World Constructors' Championship for teams.",

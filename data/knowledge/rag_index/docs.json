@@ -4,7 +4,7 @@
     "source": "curated"
   },
   {
-    "text": "Lewis Hamilton has won seven Formula 1 World Drivers' Championships, tying Michael Schumacher's record. He holds the records for most race wins and most pole positions, and has driven for McLaren and Mercedes.",
+    "text": "Lewis Hamilton has won seven Formula 1 World Drivers' Championships, tying Michael Schumacher's record. He holds the records for most race wins and most pole positions, and has driven for McLaren, Mercedes and, from 2025, Ferrari.",
     "source": "curated"
   },
   {
@@ -137,6 +137,62 @@
   },
   {
     "text": "A Formula 1 race weekend usually consists of practice sessions, a knockout qualifying (Q1, Q2, Q3) that sets the grid, and the race on Sunday. Some weekends also include a shorter sprint race.",
+    "source": "curated"
+  },
+  {
+    "text": "The halo is a titanium head-protection structure above the cockpit, mandatory since 2018. It has been credited with saving several drivers from serious injury, including Romain Grosjean in his fiery 2020 Bahrain crash.",
+    "source": "curated"
+  },
+  {
+    "text": "Refuelling during Formula 1 races has been banned since 2010; cars start with all the fuel they need, so pit stops are only for tyres (and repairs), typically taking two to three seconds.",
+    "source": "curated"
+  },
+  {
+    "text": "Parc fermé rules lock a car's setup from the start of qualifying until the race, so teams cannot rebuild the car between the two; breaking parc fermé means starting from the pit lane.",
+    "source": "curated"
+  },
+  {
+    "text": "Formula 1 qualifying is a three-stage knockout: Q1 eliminates the slowest five, Q2 the next five, and Q3 is a ten-car shootout for pole position — the first place on the starting grid.",
+    "source": "curated"
+  },
+  {
+    "text": "A sprint is a shorter ~100 km Saturday race with no mandatory pit stop, held at selected Grands Prix. It awards points to the top eight (8 down to 1) and its result sets nothing for Sunday under the current format — the grid comes from regular qualifying.",
+    "source": "curated"
+  },
+  {
+    "text": "Race control uses flags: yellow for danger (no overtaking), a red flag stops the session, blue tells a lapped car to let leaders through, black disqualifies a driver, and the chequered flag ends the race — 'getting the chequered flag' means winning or finishing.",
+    "source": "curated"
+  },
+  {
+    "text": "Grid penalties are handed out for exceeding power-unit component allocations or for driving infringements; stewards can also give time penalties (5 or 10 seconds), drive-throughs, or stop-go penalties served in the pits.",
+    "source": "curated"
+  },
+  {
+    "text": "The 107% rule requires a driver in Q1 to lap within 107% of the fastest Q1 time to be allowed to race, keeping dangerously slow cars off the grid.",
+    "source": "curated"
+  },
+  {
+    "text": "The formation lap is the slow lap before the start on which drivers warm tyres and brakes and take their grid slots; jumping the start earns a penalty, detected by sensors in each grid box.",
+    "source": "curated"
+  },
+  {
+    "text": "A modern Formula 1 power unit is a 1.6-litre V6 turbo-hybrid producing around 1,000 horsepower combined; cars weigh about 800 kg, pull over 5g in fast corners, and top ~350 km/h with DRS open.",
+    "source": "curated"
+  },
+  {
+    "text": "An F1 steering wheel is a computer with dozens of controls — brake balance, differential, engine modes, ERS deployment, radio, DRS — and drivers adjust these settings every lap while racing.",
+    "source": "curated"
+  },
+  {
+    "text": "F1 race distance is the fewest laps exceeding 305 km (Monaco excepted at ~260 km); races are capped at two hours of green-flag running (three including stoppages).",
+    "source": "curated"
+  },
+  {
+    "text": "Blue-riband records in F1: most wins in a season, youngest champion (Sebastian Vettel, 23, in 2010), and most consecutive titles (Michael Schumacher's five, 2000-2004; matched in length by no one since).",
+    "source": "curated"
+  },
+  {
+    "text": "Slipstreaming (towing) is following a car closely on a straight to sit in its low-drag wake and gain top speed — the classic overtaking aid alongside DRS; in corners the same wake becomes performance-sapping dirty air.",
     "source": "curated"
   },
   {
@@ -9066,5 +9122,405 @@
   {
     "text": "Miami International Autodrome is a Formula 1 circuit located in Miami, USA.",
     "source": "kaggle_circuit"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Max Verstappen raced for Red Bull.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Lando Norris raced for McLaren.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Charles Leclerc raced for Ferrari.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Oscar Piastri raced for McLaren.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Carlos Sainz raced for Ferrari.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, George Russell raced for Mercedes.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Lewis Hamilton raced for Mercedes.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Sergio Pérez raced for Red Bull.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Fernando Alonso raced for Aston Martin.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Pierre Gasly raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Nico Hülkenberg raced for Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Yuki Tsunoda raced for RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Lance Stroll raced for Aston Martin.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Esteban Ocon raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Kevin Magnussen raced for Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Alexander Albon raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Daniel Ricciardo raced for RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Oliver Bearman raced for Ferrari, Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Franco Colapinto raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Guanyu Zhou raced for Sauber.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Liam Lawson raced for RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Valtteri Bottas raced for Sauber.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Logan Sargeant raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2024 Formula 1 season, Jack Doohan raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "The 2025 Australian Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Lando Norris. Podium completed by Max Verstappen and George Russell.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Chinese Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Oscar Piastri. Podium completed by Lando Norris and George Russell.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Japanese Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Max Verstappen. Podium completed by Lando Norris and Oscar Piastri.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Bahrain Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Oscar Piastri. Podium completed by George Russell and Lando Norris.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Saudi Arabian Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Max Verstappen. Podium completed by Max Verstappen and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Miami Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Max Verstappen. Podium completed by Lando Norris and George Russell.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Emilia Romagna Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Oscar Piastri. Podium completed by Lando Norris and Oscar Piastri.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Monaco Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Lando Norris. Podium completed by Charles Leclerc and Oscar Piastri.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Spanish Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Oscar Piastri. Podium completed by Lando Norris and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Canadian Grand Prix was won by George Russell, driving for Mercedes. Pole position: George Russell. Podium completed by Max Verstappen and Andrea Kimi Antonelli.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Austrian Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Lando Norris. Podium completed by Oscar Piastri and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 British Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Max Verstappen. Podium completed by Oscar Piastri and Nico Hülkenberg.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Belgian Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Lando Norris. Podium completed by Lando Norris and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Hungarian Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Charles Leclerc. Podium completed by Oscar Piastri and George Russell.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Dutch Grand Prix was won by Oscar Piastri, driving for McLaren. Pole position: Oscar Piastri. Podium completed by Max Verstappen and Isack Hadjar.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Italian Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Max Verstappen. Podium completed by Lando Norris and Oscar Piastri.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Azerbaijan Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Max Verstappen. Podium completed by George Russell and Carlos Sainz.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Singapore Grand Prix was won by George Russell, driving for Mercedes. Pole position: George Russell. Podium completed by Max Verstappen and Lando Norris.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 United States Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Max Verstappen. Podium completed by Lando Norris and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Mexico City Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Lando Norris. Podium completed by Charles Leclerc and Max Verstappen.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 São Paulo Grand Prix was won by Lando Norris, driving for McLaren. Pole position: Lando Norris. Podium completed by Andrea Kimi Antonelli and Max Verstappen.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Las Vegas Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Lando Norris. Podium completed by George Russell and Andrea Kimi Antonelli.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Qatar Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Oscar Piastri. Podium completed by Oscar Piastri and Carlos Sainz.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2025 Abu Dhabi Grand Prix was won by Max Verstappen, driving for Red Bull. Pole position: Max Verstappen. Podium completed by Oscar Piastri and Lando Norris.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Lando Norris raced for McLaren.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Max Verstappen raced for Red Bull.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Oscar Piastri raced for McLaren.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, George Russell raced for Mercedes.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Charles Leclerc raced for Ferrari.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Lewis Hamilton raced for Ferrari.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Andrea Kimi Antonelli raced for Mercedes.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Alexander Albon raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Carlos Sainz raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Fernando Alonso raced for Aston Martin.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Nico Hülkenberg raced for Sauber.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Isack Hadjar raced for RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Oliver Bearman raced for Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Liam Lawson raced for Red Bull, RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Esteban Ocon raced for Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Lance Stroll raced for Aston Martin.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Yuki Tsunoda raced for RB F1 Team, Red Bull.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Pierre Gasly raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Gabriel Bortoleto raced for Sauber.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Franco Colapinto raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2025 Formula 1 season, Jack Doohan raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In 2025, Lando Norris won the Formula 1 World Drivers' Championship, becoming the 2025 F1 champion.",
+    "source": "jolpica_champion"
+  },
+  {
+    "text": "The 2026 Australian Grand Prix was won by George Russell, driving for Mercedes. Pole position: George Russell. Podium completed by Andrea Kimi Antonelli and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Chinese Grand Prix was won by Andrea Kimi Antonelli, driving for Mercedes. Pole position: Andrea Kimi Antonelli. Podium completed by George Russell and Lewis Hamilton.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Japanese Grand Prix was won by Andrea Kimi Antonelli, driving for Mercedes. Pole position: Andrea Kimi Antonelli. Podium completed by Oscar Piastri and Charles Leclerc.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Miami Grand Prix was won by Andrea Kimi Antonelli, driving for Mercedes. Pole position: Andrea Kimi Antonelli. Podium completed by Lando Norris and Oscar Piastri.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Canadian Grand Prix was won by Andrea Kimi Antonelli, driving for Mercedes. Pole position: George Russell. Podium completed by Lewis Hamilton and Max Verstappen.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Monaco Grand Prix was won by Andrea Kimi Antonelli, driving for Mercedes. Pole position: Andrea Kimi Antonelli. Podium completed by Lewis Hamilton and Pierre Gasly.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Barcelona Grand Prix was won by Lewis Hamilton, driving for Ferrari. Pole position: George Russell. Podium completed by George Russell and Lando Norris.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "The 2026 Austrian Grand Prix was won by George Russell, driving for Mercedes. Pole position: George Russell. Podium completed by Max Verstappen and Andrea Kimi Antonelli.",
+    "source": "jolpica_race"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Andrea Kimi Antonelli raced for Mercedes.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, George Russell raced for Mercedes.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Lewis Hamilton raced for Ferrari.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Oscar Piastri raced for McLaren.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Lando Norris raced for McLaren.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Charles Leclerc raced for Ferrari.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Max Verstappen raced for Red Bull.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Isack Hadjar raced for Red Bull.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Pierre Gasly raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Liam Lawson raced for RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Oliver Bearman raced for Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Franco Colapinto raced for Alpine F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Arvid Lindblad raced for RB F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Carlos Sainz raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Alexander Albon raced for Williams.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Esteban Ocon raced for Haas F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Gabriel Bortoleto raced for Audi.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Fernando Alonso raced for Aston Martin.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Nico Hülkenberg raced for Audi.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Valtteri Bottas raced for Cadillac F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Sergio Pérez raced for Cadillac F1 Team.",
+    "source": "jolpica_driver"
+  },
+  {
+    "text": "In the 2026 Formula 1 season, Lance Stroll raced for Aston Martin.",
+    "source": "jolpica_driver"
   }
 ]

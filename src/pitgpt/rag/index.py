@@ -172,13 +172,28 @@ def build_index() -> FactRetriever:
     """Assemble the full corpus and persist the hybrid index.
 
     Corpus = curated evergreen rules + OpenF1 current grid + the complete
-    Kaggle-derived historical record (~2,200 atomic fact docs).
+    Kaggle-derived historical record + Jolpica recent seasons (2024→).
+    Kaggle wins where the two sources overlap (same race / champion year), so
+    each fact exists exactly once.
     """
     from pitgpt.rag.facts import curated_documents
+    from pitgpt.rag.jolpica import jolpica_documents
     from pitgpt.rag.kb_builder import kaggle_documents
     from pitgpt.rag.openf1 import openf1_documents
 
-    docs = curated_documents() + openf1_documents() + kaggle_documents()
+    kaggle = kaggle_documents()
+    race_keys = {d["text"].split(" was won by")[0]
+                 for d in kaggle if d["source"] == "kaggle_race"}
+    champ_keys = {d["text"].split(",")[0]           # "In {year}"
+                  for d in kaggle if d["source"] == "kaggle_champion"}
+    recent = [d for d in jolpica_documents()
+              if not (d["source"] == "jolpica_race"
+                      and d["text"].split(" was won by")[0] in race_keys)
+              and not (d["source"] == "jolpica_champion"
+                       and d["text"].split(",")[0] in champ_keys)]
+    logger.info("Jolpica docs kept after Kaggle dedupe: %d", len(recent))
+
+    docs = curated_documents() + openf1_documents() + kaggle + recent
     retriever = FactRetriever()
     retriever.build(docs)
     retriever.save()
