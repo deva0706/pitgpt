@@ -67,26 +67,27 @@ def build_demo() -> gr.Blocks:
         # (a list of {"role", "content"} dicts) — no `type=` argument needed.
         chatbot = gr.Chatbot(
             height=470,
-            label="Trackside chat",
+            label="Race radio",
             avatar_images=(None, None),
             elem_id="pg-chat",
         )
 
         with gr.Row():
             msg = gr.Textbox(
-                placeholder="Ask me anything about F1 — a driver, a race, a rule…",
+                placeholder="Radio your question — a driver, a race, a rule…",
                 scale=8,
                 show_label=False,
                 autofocus=True,
                 elem_id="pg-input",
             )
-            send_btn = gr.Button("Full send", variant="primary", scale=1, elem_id="pg-send")
+            send_btn = gr.Button("Send", variant="primary", scale=1, elem_id="pg-send")
 
         with gr.Row():
-            reset_btn = gr.Button("↺ Fresh start", scale=1, elem_id="pg-reset")
+            reset_btn = gr.Button("🏁 New session", scale=1, elem_id="pg-reset")
 
         gr.Examples(
-            examples=EXAMPLE_PROMPTS, inputs=msg, label="Try asking…", elem_id="pg-examples"
+            examples=EXAMPLE_PROMPTS, inputs=msg,
+            label="Suggested radio calls", elem_id="pg-examples",
         )
 
         # Wire events: both Enter and the button submit; streaming outputs go to
