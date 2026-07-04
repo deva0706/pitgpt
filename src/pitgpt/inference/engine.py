@@ -162,6 +162,15 @@ _SELF_REFERENTIAL = re.compile(
     r"|\btell me my\b"
     r"|\bwhat did i (say|tell|mention|ask)\b", re.I)
 
+# The radio log must quote what the user STATED, never their questions —
+# live it echoed "Tell me what are my favourite Grand Prix" back as a
+# "transmission", and a recalled junk question turned an unrelated statement
+# turn into a grounded decline about corn coffee.
+_QUESTIONISH = re.compile(
+    r"\?|^\W*(so\s+|yes\s+|ok(ay)?\s+)*"
+    r"(what|who|when|where|which|why|how|tell|explain|give|can|could|do|does|did)\b",
+    re.I)
+
 
 def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | None:
     """Deterministic answer for self-referential questions ("what are my
@@ -177,9 +186,11 @@ def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | N
         return None
     statements = [_content_to_text(t.get("content"))[:220]
                   for t in history[-8:] if t.get("role") == "user"]
-    statements = [s for s in statements if s and _RECALL_CUE.search(s)]
+    statements = [s for s in statements
+                  if s and _RECALL_CUE.search(s) and not _QUESTIONISH.search(s)]
     if not statements:
-        return None
+        return ("Checking the radio log — nothing on that from you yet. "
+                "Tell me and I'll keep it on file!")
     quoted = "\n".join(f"▸ “{s}”" for s in statements[-3:])
     return (f"Checking the radio log — here's what you've told me so far:\n"
             f"{quoted}\n"
@@ -227,9 +238,11 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
     for role, text, raw_names in picked[-3:]:
         # Assistant turns contribute NAMES (so "he" resolves and enriches the
         # retrieval query) but never their TEXT — trained-format answers in
-        # the context are an imitation surface, not a memory.
+        # the context are an imitation surface, not a memory. User QUESTIONS
+        # also stay out of the quoted lines (their names still count): a
+        # recalled junk question in context derailed an unrelated turn live.
         names.extend(raw_names)
-        if role == "user":
+        if role == "user" and not _QUESTIONISH.search(text):
             lines.append(f"- Earlier in this chat, the user said: {text}")
     if not lines and not names:
         return "", []
@@ -254,15 +267,22 @@ def generate_reply(
     grounding in isolation from retrieval quality.
     """
     if context is None:
+        # Radio log outranks the conversational gate: "what is my favourite
+        # corn drink?" is off-topic AND self-referential — the log must answer
+        # it, not persona rambling.
         log_reply = _radio_log_reply(user_prompt, history)
         if log_reply is not None:
             return log_reply
-        recall, names = _chat_recall(user_prompt, history)
-        query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
-                 if names else user_prompt)
-        context = _rag_context(query, use_rag)
-        if recall:
-            context = f"{context}\n\n{recall}" if context else recall
+        from pitgpt.rag.retriever import _is_conversational
+        if _is_conversational(user_prompt):
+            context = ""    # statements/chat: persona path, history intact
+        else:
+            recall, names = _chat_recall(user_prompt, history)
+            query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
+                     if names else user_prompt)
+            context = _rag_context(query, use_rag)
+            if recall:
+                context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None   # grounded turns answer fresh — see stream_reply
     messages = build_messages(user_prompt, history, context=context)
@@ -304,12 +324,16 @@ def stream_reply(
     if log_reply is not None:
         yield log_reply
         return
-    recall, names = _chat_recall(user_prompt, history)
-    query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
-             if names else user_prompt)
-    context = _rag_context(query, use_rag)
-    if recall:
-        context = f"{context}\n\n{recall}" if context else recall
+    from pitgpt.rag.retriever import _is_conversational
+    if _is_conversational(user_prompt):
+        context = ""        # statements/chat: persona path, history intact
+    else:
+        recall, names = _chat_recall(user_prompt, history)
+        query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
+                 if names else user_prompt)
+        context = _rag_context(query, use_rag)
+        if recall:
+            context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None
     messages = build_messages(user_prompt, history, context=context)

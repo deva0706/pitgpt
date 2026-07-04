@@ -53,7 +53,7 @@ _ROUTES: list[tuple[re.Pattern, list[str]]] = [
      ["kaggle_driver", "jolpica_driver"]),
     # Driver-centric phrasings outrank the race route: "career Grand Prix win
     # tally" is a question about a DRIVER even though it contains "Grand Prix".
-    (re.compile(r"who is|tell me about|rundown on|teams? did|drive for|race for|"
+    (re.compile(r"who[' i]s\b|tell me about|rundown on|teams? did|drive for|race for|"
                 r"career|win tally|how many", re.I),
      ["kaggle_driver", "jolpica_driver", "curated", "openf1"]),
     # A race question needs a winner-verb, not just the words "grand prix".
