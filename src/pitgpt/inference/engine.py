@@ -152,6 +152,8 @@ def generate_reply(
     """
     if context is None:
         context = _rag_context(user_prompt, use_rag)
+    if context:
+        history = None   # grounded turns answer fresh — see stream_reply
     messages = build_messages(user_prompt, history, context=context)
     inputs = _encode(tokenizer, messages, model.device)
     prompt_len = inputs["input_ids"].shape[-1]
@@ -180,7 +182,15 @@ def stream_reply(
     ``TextIteratorStreamer`` queue. Each yield is the *cumulative* text so far,
     which is exactly what Gradio's chat expects.
     """
+    # The adapter is trained single-turn: with chat history in the prompt, the
+    # model imitates its own prior formatted answers instead of reading the
+    # fresh context (measured live: "Rosberg is the 2017 champion" after a
+    # correct 2016 answer, and the name-blend "Nico Mansell"). Grounded turns
+    # therefore answer FRESH from the retrieved facts; history is kept only
+    # for persona/chat turns, where continuity is the point.
     context = _rag_context(user_prompt, use_rag)
+    if context:
+        history = None
     messages = build_messages(user_prompt, history, context=context)
     inputs = _encode(tokenizer, messages, model.device)
 
