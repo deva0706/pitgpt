@@ -158,7 +158,7 @@ class TrainingConfig:
     warmup_ratio: float = 0.03
     lr_scheduler_type: str = "cosine"
     logging_steps: int = 10
-    save_steps: int = 25          # frequent checkpoints so long runs can be resumed
+    save_steps: int = 10          # ~14.5 s/step on this GPU: 10-min chunks lose at most ~9 steps on a watchdog kill
     save_total_limit: int = 3
     optim: str = "paged_adamw_8bit"           # bitsandbytes paged optimizer → less VRAM
     gradient_checkpointing: bool = True       # trade compute for memory
