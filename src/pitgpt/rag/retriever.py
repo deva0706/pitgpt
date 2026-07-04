@@ -93,7 +93,8 @@ _NAME_CUE = re.compile(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b")
 # strategy ramble). Persona mode acknowledges instead; chat-recall picks the
 # statement up on later turns.
 _USER_STATEMENT = re.compile(
-    r"\bmy favou?rite\b.*\bis\b|\bi (am|'m|like|love|support|follow)\b", re.I)
+    r"\bmy favou?rite\b.*\b(is|are|was|were)\b"   # "…circuits ARE…" slipped an is-only match
+    r"|\bi (am|'m|like|love|support|follow)\b", re.I)
 _INTERROGATIVE = re.compile(
     r"\b(who|what|when|where|which|why|how|explain|tell me)\b", re.I)
 

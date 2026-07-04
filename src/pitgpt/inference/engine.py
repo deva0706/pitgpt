@@ -155,8 +155,36 @@ _RECALL_CUE = re.compile(
 # Deliberately narrow: "What teams did my favourite driver race for?" still
 # needs retrieval and does not match.
 _SELF_REFERENTIAL = re.compile(
-    r"^\W*(so |and |ok(ay)? )?(what|which) (is|are|was|were) my\b"
+    # non-anchored: "Tell me what are my favourite GPs" must match too.
+    # "What teams did my favourite driver..." stays safe — that's "did my",
+    # not "is/are my".
+    r"\b(what|which)\s+(is|are|was|were)\s+my\b"
+    r"|\btell me my\b"
     r"|\bwhat did i (say|tell|mention|ask)\b", re.I)
+
+
+def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | None:
+    """Deterministic answer for self-referential questions ("what are my
+    favourite circuits?"): quote the user's own logged turns back verbatim.
+
+    The adapter was never trained on chat-recall contexts, and measured live
+    it either spotlighted one item or fabricated a fresh list ("Monaco,
+    Silverstone, Suzuka" to a user who said Yas Marina and Singapore). Until
+    a recall-trained adapter ships, the radio log answers these itself —
+    quoting is the one strategy that cannot hallucinate.
+    """
+    if not (history and _SELF_REFERENTIAL.search(user_prompt)):
+        return None
+    statements = [_content_to_text(t.get("content"))[:220]
+                  for t in history[-8:] if t.get("role") == "user"]
+    statements = [s for s in statements if s and _RECALL_CUE.search(s)]
+    if not statements:
+        return None
+    quoted = "\n".join(f"▸ “{s}”" for s in statements[-3:])
+    return (f"Checking the radio log — here's what you've told me so far:\n"
+            f"{quoted}\n"
+            f"That's straight from your own transmissions. Want the full "
+            f"telemetry on any of them?")
 
 
 def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, list[str]]:
@@ -226,15 +254,15 @@ def generate_reply(
     grounding in isolation from retrieval quality.
     """
     if context is None:
+        log_reply = _radio_log_reply(user_prompt, history)
+        if log_reply is not None:
+            return log_reply
         recall, names = _chat_recall(user_prompt, history)
-        if recall and _SELF_REFERENTIAL.search(user_prompt):
-            context = recall            # the user's own words are the answer
-        else:
-            query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
-                     if names else user_prompt)
-            context = _rag_context(query, use_rag)
-            if recall:
-                context = f"{context}\n\n{recall}" if context else recall
+        query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
+                 if names else user_prompt)
+        context = _rag_context(query, use_rag)
+        if recall:
+            context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None   # grounded turns answer fresh — see stream_reply
     messages = build_messages(user_prompt, history, context=context)
@@ -272,15 +300,16 @@ def stream_reply(
     # therefore answer FRESH from the retrieved facts; history reaches them
     # only as labeled chat-recall context (recited, not imitated), and raw
     # history is kept for persona/chat turns, where continuity is the point.
+    log_reply = _radio_log_reply(user_prompt, history)
+    if log_reply is not None:
+        yield log_reply
+        return
     recall, names = _chat_recall(user_prompt, history)
-    if recall and _SELF_REFERENTIAL.search(user_prompt):
-        context = recall                # the user's own words are the answer
-    else:
-        query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
-                 if names else user_prompt)
-        context = _rag_context(query, use_rag)
-        if recall:
-            context = f"{context}\n\n{recall}" if context else recall
+    query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
+             if names else user_prompt)
+    context = _rag_context(query, use_rag)
+    if recall:
+        context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None
     messages = build_messages(user_prompt, history, context=context)
