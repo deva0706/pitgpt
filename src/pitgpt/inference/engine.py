@@ -159,16 +159,24 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
     q_years = set(_PIN_YEAR.findall(user_prompt))
     cued = bool(_RECALL_CUE.search(user_prompt))
     picked: list[tuple[str, str, list[str]]] = []
-    recent = [t for t in history[-8:] if isinstance(t.get("content"), str)]
-    for i, turn in enumerate(recent):
-        text = turn["content"][:220]
+    # Gradio 6 stores content as a LIST of parts — a plain isinstance(str)
+    # filter here silently dropped every real turn (recall worked in tests,
+    # never in the app). Flatten like build_messages does.
+    recent = [(t.get("role", "user"), _content_to_text(t.get("content")))
+              for t in history[-8:]]
+    recent = [(role, text) for role, text in recent if text]
+    for i, (role, text) in enumerate(recent):
+        text = text[:220]
         raw_names = _PIN_NAME.findall(text)          # original case, for query use
         t_names = {_fold(n) for n in raw_names}
         t_years = set(_PIN_YEAR.findall(text))
         entity_hit = bool((q_names & t_names) or (q_years & t_years))
         cue_hit = cued and i >= len(recent) - 2      # cue → last exchange
-        if entity_hit or cue_hit:
-            picked.append((turn.get("role", "user"), text, raw_names))
+        # a cue like "my favourite" also recalls the turn where the user
+        # STATED it, however far back
+        statement_hit = cued and role == "user" and _RECALL_CUE.search(text)
+        if entity_hit or cue_hit or statement_hit:
+            picked.append((role, text, raw_names))
     if not picked:
         return "", []
     lines, names = [], []

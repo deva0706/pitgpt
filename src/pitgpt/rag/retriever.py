@@ -81,9 +81,24 @@ _F1_KEYWORDS = re.compile(
 _NAME_CUE = re.compile(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b")
 
 
+# First-person statements are the user TELLING the bot something ("my favorite
+# driver is Fernando Alonso, ok?"), not asking — retrieval here returns doc
+# mush for the model to recite as a non-sequitur (measured live: a rain-
+# strategy ramble). Persona mode acknowledges instead; chat-recall picks the
+# statement up on later turns.
+_USER_STATEMENT = re.compile(
+    r"\bmy favou?rite\b.*\bis\b|\bi (am|'m|like|love|support|follow)\b", re.I)
+_INTERROGATIVE = re.compile(
+    r"\b(who|what|when|where|which|why|how|explain|tell me)\b", re.I)
+
+
 def _is_conversational(query: str) -> bool:
     """True for turns that carry no F1 content worth retrieving for."""
     q = query.strip()
+    # A statement without a real question rides the persona path even when it
+    # names an entity ("...is Fernando Alonso, ok?" must not fetch docs).
+    if _USER_STATEMENT.search(q) and not _INTERROGATIVE.search(q):
+        return True
     return not (_F1_KEYWORDS.search(q) or _NAME_CUE.search(q))
 
 
