@@ -286,7 +286,13 @@ that maximize honest declines (70% in iteration 2) cost facts accuracy, and the
 realistic-context mix that won facts+formats traded declines back down. The
 force-fed mismatched contexts in this benchmark are largely filtered by entity
 pinning in the production path, but the residual is reported as measured.
-Every report is committed under `src/pitgpt/evaluation/`.
+One live failure class is closed deterministically: a year+GP query with no
+matching race on record ("2007 Singapore GP" — first held 2008) now injects an
+explicit absence fact instead of near-miss docs, so the model recites "not
+held" rather than restamping a neighbouring year's result — turning its
+strongest behavior (recitation) into the honesty the decline training
+couldn't reliably deliver. Every report is committed under
+`src/pitgpt/evaluation/`.
 
 **The journey, as measurements** (each pivot was driven by a number):
 

@@ -137,7 +137,29 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     results = retriever.retrieve(query, k=k, sources=sources)
     if not results and sources:
         results = retriever.retrieve(query, k=k)   # routed miss -> open fallback
-    return _pin(query, results)
+    results = _pin(query, results)
+
+    # Nonexistent-race guard. The corpus holds EVERY championship round
+    # 1950→today, so a year+GP query with no doc matching both means the race
+    # wasn't held ("2007 Singapore GP" — Singapore joined in 2008). Without
+    # this, pinning falls back to the same GP in OTHER years and the model
+    # faithfully recites a neighbouring race under the asked year — measured
+    # live as a fabricated 2007 Singapore result built from the 2010 doc.
+    # Stating the absence as a context fact turns the weak decline behavior
+    # into the strong recitation behavior.
+    year_m = _PIN_YEAR.search(query)
+    gp_m = _PIN_GP.search(query)
+    if year_m and gp_m:
+        year, gp = year_m.group(0), gp_m.group(0)
+        gp_low = _fold(gp)
+        if not any(re.search(r"\b" + year + r"\b", _fold(d.get("text", "")))
+                   and gp_low in _fold(d.get("text", "")) for d in results):
+            return [{
+                "text": (f"There is no {year} {gp} in the historical race "
+                         f"records — that Grand Prix was not held in {year}."),
+                "source": "absence_guard",
+            }]
+    return results
 
 
 def retrieve_context(query: str, k: int = 4) -> str:
