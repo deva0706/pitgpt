@@ -42,6 +42,12 @@ import re
 # family keeps retrieval precise. Order matters: championship phrasing wins
 # over race phrasing ("who won the 2016 championship" is not a race question).
 _ROUTES: list[tuple[re.Pattern, list[str]]] = [
+    # Season overviews before the driver route: "tell me about the 2012
+    # season" was routed to driver bios and honestly declined. Entity pinning
+    # still separates "the 2012 season" (summary doc) from "X's 2025 season"
+    # (name pin keeps the driver's season entry).
+    (re.compile(r"\bseason\b", re.I),
+     ["kaggle_season", "jolpica_driver", "kaggle_champion", "curated"]),
     (re.compile(r"constructor", re.I), ["kaggle_constructors", "curated"]),
     (re.compile(r"champion|title", re.I),
      ["kaggle_champion", "jolpica_champion", "curated"]),
