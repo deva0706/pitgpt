@@ -107,50 +107,64 @@ footer {{ display: none !important; }}
 }}
 .pw-chip.hot {{ color: var(--pw-teal); border-color: rgba(0,210,190,0.35); }}
 
-/* ---- Transcript: timing rows, not bubbles ---- */
+/* ---- Transcript: timing rows, not bubbles ----
+   Selectors match Gradio 6's real chatbot DOM (.message-row.user-row/.bot-row
+   wrapping a .message). Wildcards like [class*="user"] previously hit nested
+   wrappers AND the .bubble-wrap scroll container — double edge bars, phantom
+   tinted blocks, one giant empty styled panel. Never again. */
 #pg-chat {{
     border: 1px solid var(--pw-line) !important;
     border-radius: 4px !important;
-    background: var(--pw-panel) !important;
+    background: #10131a !important;
 }}
-#pg-chat .message, #pg-chat [class*="bubble"] {{
-    border-radius: 3px !important;
+#pg-chat .bubble-wrap {{ background: transparent !important; }}
+#pg-chat .message-row {{
+    margin: 12px 14px !important;
+    background: transparent !important;
     border: none !important;
+}}
+#pg-chat .message-bubble-border {{ display: none !important; }}
+#pg-chat .message {{
+    border: none !important;
+    border-radius: 3px !important;
+    max-width: 82%;
+    padding: 10px 14px !important;
     font-size: 0.98rem !important;
     line-height: 1.6 !important;
     font-family: {_SANS} !important;
+    background: transparent !important;
 }}
-/* PitGPT rows: teal edge bar + mono label */
-#pg-chat [data-testid="bot"], #pg-chat .bot, #pg-chat [class*="bot"] {{
-    background: #1a1d23 !important;
+/* PitGPT rows: teal edge bar + mono label line */
+#pg-chat .bot-row .message {{
+    background: #151b21 !important;
     border-left: 3px solid var(--pw-teal) !important;
     color: var(--pw-text) !important;
-    position: relative;
-    padding-top: 26px !important;
 }}
-#pg-chat [data-testid="bot"]::before {{
+#pg-chat .bot-row .message::before {{
     content: "PITGPT ▮ RACE ENGINEER";
-    position: absolute; top: 7px; left: 12px;
+    display: block;
+    margin-bottom: 6px;
     font-family: {_MONO}; font-size: 0.6rem; letter-spacing: 0.2em;
     color: var(--pw-teal); opacity: 0.9;
 }}
-/* User rows: red edge bar + mono label */
-#pg-chat [data-testid="user"], #pg-chat .user, #pg-chat [class*="user"] {{
-    background: rgba(225,6,0,0.10) !important;
+/* User rows: red edge bar + mono label line, right-aligned */
+#pg-chat .user-row {{ justify-content: flex-end !important; }}
+#pg-chat .user-row .message {{
+    background: #1e1216 !important;
     border-right: 3px solid var(--pw-red) !important;
     color: #ffffff !important;
-    position: relative;
-    padding-top: 26px !important;
 }}
-#pg-chat [data-testid="user"]::before {{
+#pg-chat .user-row .message::before {{
     content: "YOU ▸";
-    position: absolute; top: 7px; right: 12px;
+    display: block;
+    text-align: right;
+    margin-bottom: 6px;
     font-family: {_MONO}; font-size: 0.6rem; letter-spacing: 0.2em;
-    color: var(--pw-red); opacity: 0.95;
+    color: #ff6f6a; opacity: 0.95;
 }}
 /* Hide per-message icon clutter (copy/share buttons) */
-#pg-chat .message-buttons, #pg-chat [class*="icon-button"],
-#pg-chat button[title*="opy"], #pg-chat [class*="options"] {{
+#pg-chat .message-buttons, #pg-chat .message-buttons-left,
+#pg-chat .message-buttons-right, #pg-chat .icon-button-wrapper {{
     display: none !important;
 }}
 
