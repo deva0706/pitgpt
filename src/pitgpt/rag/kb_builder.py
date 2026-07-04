@@ -136,51 +136,6 @@ def constructor_champion_docs(t: dict) -> list[dict]:
     return docs
 
 
-def season_docs(t: dict, champ_years: dict[str, list[int]]) -> list[dict]:
-    """One summary doc per season: champion, constructors' champion, race
-    count, most race wins. "Tell me about the 2012 season" had NO answering
-    doc — the model honestly declined citing whatever season doc drifted in.
-    All fields come from tables already loaded; no new data source."""
-    final_ids = _season_final_race_ids(t)
-    champs: dict[int, str] = {}
-    for s in t["standings"]:
-        year = final_ids.get(s["raceId"])
-        if year is not None and s["position"] == "1":
-            d = t["drivers"].get(s["driverId"])
-            if d:
-                champs[year] = _name(d)
-    c_champs: dict[int, str] = {}
-    for s in t["c_standings"]:
-        year = final_ids.get(s["raceId"])
-        if year is not None and s["position"] == "1":
-            team = t["constructors"].get(s["constructorId"])
-            if team:
-                c_champs[year] = team
-    races_per_year: dict[int, int] = defaultdict(int)
-    for race in t["races"].values():
-        races_per_year[int(race["year"])] += 1
-    wins: dict[tuple[int, str], int] = defaultdict(int)
-    for r in t["results"]:
-        if r.get("positionText") == "1":
-            race = t["races"].get(r["raceId"])
-            d = t["drivers"].get(r["driverId"])
-            if race and d:
-                wins[(int(race["year"]), _name(d))] += 1
-    docs = []
-    for year, champ in sorted(champs.items()):
-        text = (f"The {year} Formula 1 season had {races_per_year.get(year, 0)} "
-                f"races. {champ} won the World Drivers' Championship")
-        if year in c_champs:
-            text += f", and {c_champs[year]} won the Constructors' Championship"
-        text += "."
-        year_wins = [(n, w) for (y, n), w in wins.items() if y == year]
-        if year_wins:
-            top, w = max(year_wins, key=lambda x: x[1])
-            text += f" Most race wins that season: {top} ({w})."
-        docs.append(_doc(text, "kaggle_season"))
-    return docs
-
-
 def circuit_docs(t: dict) -> list[dict]:
     return [
         _doc(f"{c['name']} is a Formula 1 circuit located in {c['location']}, "
@@ -199,7 +154,6 @@ def kaggle_documents() -> list[dict]:
         + champions
         + constructor_champion_docs(t)
         + circuit_docs(t)
-        + season_docs(t, champ_years)
     )
     logger.info("Kaggle KB: %d fact documents.", len(docs))
     return docs
