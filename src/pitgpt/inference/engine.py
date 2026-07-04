@@ -234,7 +234,7 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
             picked.append((role, text, raw_names))
     if not picked:
         return "", []
-    lines, names = [], []
+    lines, names, stated_names = [], [], []
     for role, text, raw_names in picked[-3:]:
         # Assistant turns contribute NAMES (so "he" resolves and enriches the
         # retrieval query) but never their TEXT — trained-format answers in
@@ -244,6 +244,13 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
         names.extend(raw_names)
         if role == "user" and not _QUESTIONISH.search(text):
             lines.append(f"- Earlier in this chat, the user said: {text}")
+            stated_names.extend(raw_names)
+    # "Who is my favorite driver?" after a Vettel statement pulled names from
+    # a Hamilton question too, and the mixed-entity context produced nonsense.
+    # A preference the user STATED beats names that merely appeared in
+    # questions or answers.
+    if stated_names:
+        names = stated_names
     if not lines and not names:
         return "", []
     block = ("From earlier in this conversation (chat recall):\n" + "\n".join(lines)

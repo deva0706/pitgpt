@@ -93,7 +93,8 @@ _NAME_CUE = re.compile(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b")
 # strategy ramble). Persona mode acknowledges instead; chat-recall picks the
 # statement up on later turns.
 _USER_STATEMENT = re.compile(
-    r"\bmy favou?rite\b.*\b(is|are|was|were)\b"   # "…circuits ARE…" slipped an is-only match
+    r"\bmy favou?rite\b.*\b(is|are|was|were)\b"   # "my favourite X is/are …"
+    r"|\b(is|are)\s+my\s+favou?rite\b"            # "… X is my favourite" (reversed order slipped through live)
     r"|\bi (am|'m|like|love|support|follow)\b", re.I)
 _INTERROGATIVE = re.compile(
     r"\b(who|what|when|where|which|why|how|explain|tell me)\b", re.I)
@@ -128,6 +129,20 @@ def _fold(s: str) -> str:
                    if unicodedata.category(c) != "Mn")
 
 
+def _gp_matcher(gp_phrase: str):
+    """Match a GP name tolerantly: users adjectivize race names ("Singaporean
+    Grand Prix" for the Singapore GP), which made the absence guard decline a
+    race it demonstrably had. Falls back from the exact phrase to 5-char stems
+    of the distinctive words ("singa" hits "singapore")."""
+    full = _fold(gp_phrase)
+    stems = [_fold(w)[:5] for w in gp_phrase.split()
+             if len(w) >= 5 and w.lower() not in ("grand", "prix")]
+
+    def matches(text_low: str) -> bool:
+        return full in text_low or any(s in text_low for s in stems)
+    return matches
+
+
 def _pin(query: str, results: list[dict]) -> list[dict]:
     def keep(docs: list[dict], pred) -> list[dict]:
         kept = [d for d in docs if pred(_fold(d.get("text", "")))]
@@ -136,7 +151,7 @@ def _pin(query: str, results: list[dict]) -> list[dict]:
         results = keep(results, lambda t, y=year: re.search(r"\b" + y + r"\b", t))
     gp = _PIN_GP.search(query)
     if gp:
-        results = keep(results, lambda t, g=_fold(gp.group(0)): g in t)
+        results = keep(results, _gp_matcher(gp.group(0)))
     names = [_fold(n) for n in _PIN_NAME.findall(query)]
     if names:
         results = keep(results, lambda t: any(n in t for n in names))
@@ -173,9 +188,9 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     gp_m = _PIN_GP.search(query)
     if year_m and gp_m:
         year, gp = year_m.group(0), gp_m.group(0)
-        gp_low = _fold(gp)
+        gp_match = _gp_matcher(gp)   # stem-tolerant: "Singaporean" ≈ "Singapore"
         if not any(re.search(r"\b" + year + r"\b", _fold(d.get("text", "")))
-                   and gp_low in _fold(d.get("text", "")) for d in results):
+                   and gp_match(_fold(d.get("text", ""))) for d in results):
             return [{
                 "text": (f"There is no {year} {gp} in the historical race "
                          f"records — that Grand Prix was not held in {year}."),
