@@ -45,6 +45,12 @@ _ROUTES: list[tuple[re.Pattern, list[str]]] = [
     (re.compile(r"constructor", re.I), ["kaggle_constructors", "curated"]),
     (re.compile(r"champion|title", re.I),
      ["kaggle_champion", "jolpica_champion", "curated"]),
+    # Win-tally questions get the bio docs ONLY: the curated notes discuss
+    # titles in prose ("seven championships...") and outranked the bio's exact
+    # win count in the prompt — measured live as "Seven" for Hamilton's 105.
+    (re.compile(r"how many.*(win|won|race)|win tally|wins (does|did|has)|"
+                r"grand prix wins", re.I),
+     ["kaggle_driver", "jolpica_driver"]),
     # Driver-centric phrasings outrank the race route: "career Grand Prix win
     # tally" is a question about a DRIVER even though it contains "Grand Prix".
     (re.compile(r"who is|tell me about|rundown on|teams? did|drive for|race for|"

@@ -158,6 +158,12 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
     q_names = {_fold(n) for n in _PIN_NAME.findall(user_prompt)}
     q_years = set(_PIN_YEAR.findall(user_prompt))
     cued = bool(_RECALL_CUE.search(user_prompt))
+    # A question that already names its entity needs nothing resolved —
+    # injecting recall there only offers old answers to imitate (measured
+    # live: a teammates question answered with a verbatim repeat of the
+    # previous win-count reply).
+    if q_names and not cued:
+        return "", []
     picked: list[tuple[str, str, list[str]]] = []
     # Gradio 6 stores content as a LIST of parts — a plain isinstance(str)
     # filter here silently dropped every real turn (recall worked in tests,
@@ -181,10 +187,16 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
         return "", []
     lines, names = [], []
     for role, text, raw_names in picked[-3:]:
-        who = "the user said" if role == "user" else "PitGPT answered"
-        lines.append(f"- Earlier in this chat, {who}: {text}")
+        # Assistant turns contribute NAMES (so "he" resolves and enriches the
+        # retrieval query) but never their TEXT — trained-format answers in
+        # the context are an imitation surface, not a memory.
         names.extend(raw_names)
-    block = "From earlier in this conversation (chat recall):\n" + "\n".join(lines)
+        if role == "user":
+            lines.append(f"- Earlier in this chat, the user said: {text}")
+    if not lines and not names:
+        return "", []
+    block = ("From earlier in this conversation (chat recall):\n" + "\n".join(lines)
+             if lines else "")
     return block, names
 
 
