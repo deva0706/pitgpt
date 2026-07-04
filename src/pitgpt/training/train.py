@@ -159,9 +159,12 @@ def _resolve_resume(output_dir):
     if val != "auto":
         return val
     out = Path(output_dir)
-    checkpoints = list(out.glob("checkpoint-*")) if out.exists() else []
+    # A watchdog kill mid-save leaves a checkpoint without trainer_state.json;
+    # resuming from one crashes. Only complete checkpoints are candidates.
+    checkpoints = [p for p in out.glob("checkpoint-*")
+                   if (p / "trainer_state.json").exists()] if out.exists() else []
     if not checkpoints:
-        logger.info("PITGPT_RESUME=auto but no checkpoint found; starting fresh.")
+        logger.info("PITGPT_RESUME=auto but no complete checkpoint; starting fresh.")
         return None
     latest = max(checkpoints, key=lambda p: int(re.findall(r"\d+", p.name)[-1]))
     logger.info("Resuming from %s", latest)
