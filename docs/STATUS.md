@@ -1,5 +1,12 @@
 # PitGPT — Autonomous Build STATUS
 
+> **2026-07-04 update — formats + accuracy overnight build shipped.**
+> Facts benchmark **23% → 97% strict** (confident-wrong 2%), user reply
+> formats at **98% adherence**, corpus 2,381 docs incl. live 2024–26 seasons.
+> Grounding 72% (decline seesaw documented). See
+> `docs/plans/2026-07-03-overnight-90pct.md` and the README evidence tables.
+> Everything below this line describes the original 360M-era build.
+
 **Run outcome: ✅ complete, end-to-end.** All 7 phases were built, the model was
 fine-tuned with QLoRA, the adapter was saved, and the chat app loads it and
 behaves like an F1 race engineer. Work is committed to a **dedicated local git
