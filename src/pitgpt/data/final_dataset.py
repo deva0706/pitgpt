@@ -76,6 +76,16 @@ def _driver_card_rows(rng: random.Random, n: int) -> list[dict]:
                f"to {y1} for {', '.join(teams)}.")
         if wins:
             ctx += f" {name} won {wins} Grand{'s Prix' if wins > 1 else ' Prix'}."
+        # Realistic-context hardening: real retrieved bios of champions carry a
+        # "won the World Drivers' Championship" sentence, and pinning often
+        # adds a current-season doc. v3 showed those context words hijack the
+        # template choice — train the card format to survive both.
+        if wins and rng.random() < 0.4:
+            ctx += (f" {name} won the World Drivers' Championship in "
+                    f"{y0 + 1}, {y0 + 2}.")
+        if rng.random() < 0.3:
+            ctx += (f"\n- In the {y1} Formula 1 season, {name} raced for "
+                    f"{teams[-1]}.")
         a = T.driver_card_reply(name, nat, f"{y0}–{y1}", teams, wins)
         q = rng.choice([f"Who is {name}?", f"Tell me about {name}.",
                         f"Give me the rundown on {name}.",
@@ -180,6 +190,11 @@ def _win_count_rows(rng: random.Random, n: int) -> list[dict]:
         y0 = rng.randint(1980, 2015)
         ctx = (f"- {name} is a Formula 1 driver who raced from {y0} to "
                f"{y0 + rng.randint(4, 14)}. {name} won {wins} Grands Prix.")
+        # Real champions' bios mention titles; v3 showed that word pulled the
+        # championship template onto tally questions. Train against it.
+        if rng.random() < 0.5:
+            ctx += (f" {name} won the World Drivers' Championship in "
+                    f"{y0 + 2}.")
         a = T.win_count_reply(name, wins,
                               rng.choice(["Proper numbers.", "Not bad at all.",
                                           "Some career, that.", ""]))
@@ -283,6 +298,37 @@ def _comparison_rows(rng: random.Random, n: int) -> list[dict]:
     return rows
 
 
+def _attribute_comparison_rows(rng: random.Random, n: int) -> list[dict]:
+    """Non-numeric synthesis: two facts, question asks which has a property.
+    v3 declined on these ("Monaco is not in my notes") because only counting
+    comparisons were trained — the decline template over-fired on any
+    two-entity question it hadn't seen."""
+    pairs = [
+        ("{a} is a slow, tight street circuit where overtaking is nearly impossible.",
+         "{b} has long straights and a low-downforce, very high top-speed layout.",
+         "Which of these two circuits has higher top speeds?",
+         "Stack them up: {b} — long straights and a low-downforce layout mean far higher top speeds."),
+        ("The soft tyre compound gives the most grip but wears out quickest.",
+         "The hard compound lasts much longer but offers the least grip.",
+         "Which compound lasts longer, soft or hard?",
+         "Stack them up: the hard compound lasts longer — you trade grip for durability."),
+        ("{a} joined Formula 1 in 1950 as one of the original championship rounds.",
+         "{b} first appeared on the calendar in 2008.",
+         "Which of these circuits is older?",
+         "Stack them up: {a} — on the calendar since 1950, decades before {b}."),
+    ]
+    circuit_names = [c[0] for c in CIRCUITS]
+    rows = []
+    for _ in range(n):
+        f1, f2, q, ans = rng.choice(pairs)
+        a, b = rng.sample(circuit_names, 2)
+        facts = [f"- {f1.format(a=a, b=b)}", f"- {f2.format(a=a, b=b)}"]
+        rng.shuffle(facts)
+        rows.append(_row("\n".join(facts), q,
+                         ans.format(a=a, b=b)))
+    return rows
+
+
 def build_final_rows(seed: int = 42) -> list[dict[str, str]]:
     """Grounded-format + honesty + persona. Deterministic under ``seed``."""
     rng = random.Random(seed)
@@ -294,13 +340,14 @@ def build_final_rows(seed: int = 42) -> list[dict[str, str]]:
     rows += _champion_rows(rng, 200)
     rows += _constructors_rows(rng, 80)
     rows += _circuit_rows(rng, 80)
-    rows += _win_count_rows(rng, 160)
+    rows += _win_count_rows(rng, 180)
     rows += _racecraft_rows(rng)
     # Honesty: decline vs pick-from-context as a CONTRASTIVE pair on the same
     # question shape — presence of the asked entity decides which voice fires.
     rows += _decline_rows(rng, 240)
     rows += _pick_from_context_rows(rng, 120)
     rows += _comparison_rows(rng, 100)
+    rows += _attribute_comparison_rows(rng, 60)
     rows += _detail_extraction_examples(rng, 100)
 
     # De-dup then shuffle.
