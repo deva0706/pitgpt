@@ -16,6 +16,7 @@ share exactly one definition of "how PitGPT talks".
 from __future__ import annotations
 
 import logging
+import re
 from threading import Thread
 from typing import Iterable, Iterator
 
@@ -135,6 +136,50 @@ def _rag_context(user_prompt: str, use_rag: bool) -> str:
     return retrieve_context(user_prompt)
 
 
+# --- conversation recall: chat history as a retrieval source ---------------- #
+# Raw prior turns in the prompt made the single-turn-trained model IMITATE its
+# own formatted answers ("Rosberg is the 2017 champion", "Nico Mansell"). The
+# same mechanism becomes a feature when relevant history is injected as LABELED
+# CONTEXT instead: the trained behavior is to recite context, so recalled chat
+# facts get read, not parroted. Recall fires only on an explicit reference cue
+# ("he", "my favourite", "earlier", ...) or a shared driver-name/year — the
+# 2016→2017 contamination case shares neither, so it recalls nothing.
+_RECALL_CUE = re.compile(
+    r"\b(he|she|they|him|her|his|hers|their|it|that (race|season|driver|team|year)|"
+    r"my favou?rite|i (said|mentioned|told|asked)|earlier|before|again|same)\b", re.I)
+
+
+def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, list[str]]:
+    """Return (labeled recall block, entity names found) from relevant turns."""
+    if not history:
+        return "", []
+    from pitgpt.rag.retriever import _fold, _PIN_NAME, _PIN_YEAR
+
+    q_names = {_fold(n) for n in _PIN_NAME.findall(user_prompt)}
+    q_years = set(_PIN_YEAR.findall(user_prompt))
+    cued = bool(_RECALL_CUE.search(user_prompt))
+    picked: list[tuple[str, str, list[str]]] = []
+    recent = [t for t in history[-8:] if isinstance(t.get("content"), str)]
+    for i, turn in enumerate(recent):
+        text = turn["content"][:220]
+        raw_names = _PIN_NAME.findall(text)          # original case, for query use
+        t_names = {_fold(n) for n in raw_names}
+        t_years = set(_PIN_YEAR.findall(text))
+        entity_hit = bool((q_names & t_names) or (q_years & t_years))
+        cue_hit = cued and i >= len(recent) - 2      # cue → last exchange
+        if entity_hit or cue_hit:
+            picked.append((turn.get("role", "user"), text, raw_names))
+    if not picked:
+        return "", []
+    lines, names = [], []
+    for role, text, raw_names in picked[-3:]:
+        who = "the user said" if role == "user" else "PitGPT answered"
+        lines.append(f"- Earlier in this chat, {who}: {text}")
+        names.extend(raw_names)
+    block = "From earlier in this conversation (chat recall):\n" + "\n".join(lines)
+    return block, names
+
+
 @torch.inference_mode()
 def generate_reply(
     model,
@@ -151,7 +196,11 @@ def generate_reply(
     grounding in isolation from retrieval quality.
     """
     if context is None:
-        context = _rag_context(user_prompt, use_rag)
+        recall, names = _chat_recall(user_prompt, history)
+        query = f"{user_prompt} {' '.join(dict.fromkeys(names))}" if names else user_prompt
+        context = _rag_context(query, use_rag)
+        if recall:
+            context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None   # grounded turns answer fresh — see stream_reply
     messages = build_messages(user_prompt, history, context=context)
@@ -186,9 +235,14 @@ def stream_reply(
     # model imitates its own prior formatted answers instead of reading the
     # fresh context (measured live: "Rosberg is the 2017 champion" after a
     # correct 2016 answer, and the name-blend "Nico Mansell"). Grounded turns
-    # therefore answer FRESH from the retrieved facts; history is kept only
-    # for persona/chat turns, where continuity is the point.
-    context = _rag_context(user_prompt, use_rag)
+    # therefore answer FRESH from the retrieved facts; history reaches them
+    # only as labeled chat-recall context (recited, not imitated), and raw
+    # history is kept for persona/chat turns, where continuity is the point.
+    recall, names = _chat_recall(user_prompt, history)
+    query = f"{user_prompt} {' '.join(dict.fromkeys(names))}" if names else user_prompt
+    context = _rag_context(query, use_rag)
+    if recall:
+        context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None
     messages = build_messages(user_prompt, history, context=context)
