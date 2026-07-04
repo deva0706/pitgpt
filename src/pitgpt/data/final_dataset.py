@@ -33,9 +33,7 @@ from pitgpt.data import templates as T
 from pitgpt.data.grounded_dataset import (
     DRIVERS,
     TEAMS,
-    _comparison_examples,
     _detail_extraction_examples,
-    _distractor_examples,
 )
 
 NATIONALITIES = ["British", "German", "Australian", "Spanish", "Dutch", "French",
@@ -242,6 +240,49 @@ def _decline_rows(rng: random.Random, n: int) -> list[dict]:
     return rows
 
 
+def _pick_from_context_rows(rng: random.Random, n: int) -> list[dict]:
+    """Distractor discipline, restyled: the asked driver IS among 3 context
+    facts — answer in the telemetry format. Forms a contrastive pair with
+    _decline_rows (same question shape, asked driver ABSENT → "Box, box"),
+    which is the discrimination the v2_formats benchmark showed was missing
+    (mismatch cases answered in the distractor voice instead of declining)."""
+    rows = []
+    for _ in range(n):
+        driver, team = rng.choice(DRIVERS), rng.choice(TEAMS)
+        others = rng.sample([d for d in DRIVERS if d != driver], 2)
+        other_teams = rng.sample([t for t in TEAMS if t != team], 2)
+        facts = [f"- {driver} currently races for {team}.",
+                 f"- {others[0]} currently races for {other_teams[0]}.",
+                 f"- {others[1]} currently races for {other_teams[1]}."]
+        rng.shuffle(facts)
+        q = rng.choice([f"Which team does {driver} drive for?",
+                        f"Who does {driver} race for?"])
+        a = f"Checking the telemetry on {driver} — he's at {team}."
+        rows.append(_row("\n".join(facts), q, a))
+    return rows
+
+
+def _comparison_rows(rng: random.Random, n: int) -> list[dict]:
+    """Cross-fact synthesis with randomized counts. Opening restyled to
+    "Stack them up" — its old "Going by the facts here" voice was bleeding
+    into win-count answers (20% tally-format adherence)."""
+    rows = []
+    for _ in range(n):
+        a, b = rng.sample(DRIVERS, 2)
+        na, nb = rng.sample(range(1, 8), 2)
+        winner, wn = (a, na) if na > nb else (b, nb)
+        facts = [f"- {a} has won {na} World Championships.",
+                 f"- {b} has won {nb} World Championships."]
+        rng.shuffle(facts)
+        q = rng.choice([f"Who has won more championships, {a} or {b}?",
+                        f"Of {a} and {b}, who has the most titles?",
+                        f"Who's more successful in championships, {a} or {b}?"])
+        ans = (f"Stack them up: {winner} takes it — {wn} championships "
+               f"to {min(na, nb)}.")
+        rows.append(_row("\n".join(facts), q, ans))
+    return rows
+
+
 def build_final_rows(seed: int = 42) -> list[dict[str, str]]:
     """Grounded-format + honesty + persona. Deterministic under ``seed``."""
     rng = random.Random(seed)
@@ -250,15 +291,16 @@ def build_final_rows(seed: int = 42) -> list[dict[str, str]]:
     rows += _driver_card_rows(rng, 260)
     rows += _season_driver_rows(rng, 80)
     rows += _race_recap_rows(rng, 240)
-    rows += _champion_rows(rng, 160)
+    rows += _champion_rows(rng, 200)
     rows += _constructors_rows(rng, 80)
     rows += _circuit_rows(rng, 80)
-    rows += _win_count_rows(rng, 120)
+    rows += _win_count_rows(rng, 160)
     rows += _racecraft_rows(rng)
-    # Honesty (the collapsed behavior gets the biggest single block):
+    # Honesty: decline vs pick-from-context as a CONTRASTIVE pair on the same
+    # question shape — presence of the asked entity decides which voice fires.
     rows += _decline_rows(rng, 240)
-    rows += _distractor_examples(rng, 120)
-    rows += _comparison_examples(rng, 100)
+    rows += _pick_from_context_rows(rng, 120)
+    rows += _comparison_rows(rng, 100)
     rows += _detail_extraction_examples(rng, 100)
 
     # De-dup then shuffle.

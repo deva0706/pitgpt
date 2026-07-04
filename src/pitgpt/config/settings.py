@@ -104,7 +104,7 @@ class GenerationConfig:
     top_p: float = 0.9
     top_k: int = 50
     repetition_penalty: float = 1.15
-    do_sample: bool = True
+    do_sample: bool = False   # greedy: sampling at 0.35 garbled names ('Fittpaldi') and drifted trained formats; recitation wants argmax
 
 
 @dataclass(frozen=True)
