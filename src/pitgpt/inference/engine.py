@@ -148,6 +148,16 @@ _RECALL_CUE = re.compile(
     r"\b(he|she|they|him|her|his|hers|their|it|that (race|season|driver|team|year)|"
     r"my favou?rite|i (said|mentioned|told|asked)|earlier|before|again|same)\b", re.I)
 
+# "What are MY favourite circuits?" asks about the USER, not about F1 — corpus
+# docs are pure noise there, and a retrieved Suzuka doc beat the user's own
+# words in live testing ("you love Suzuka!" to someone who never said it).
+# Enumeration questions about the user answer from chat recall ALONE.
+# Deliberately narrow: "What teams did my favourite driver race for?" still
+# needs retrieval and does not match.
+_SELF_REFERENTIAL = re.compile(
+    r"^\W*(so |and |ok(ay)? )?(what|which) (is|are|was|were) my\b"
+    r"|\bwhat did i (say|tell|mention|ask)\b", re.I)
+
 
 def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, list[str]]:
     """Return (labeled recall block, entity names found) from relevant turns."""
@@ -217,10 +227,14 @@ def generate_reply(
     """
     if context is None:
         recall, names = _chat_recall(user_prompt, history)
-        query = f"{user_prompt} {' '.join(dict.fromkeys(names))}" if names else user_prompt
-        context = _rag_context(query, use_rag)
-        if recall:
-            context = f"{context}\n\n{recall}" if context else recall
+        if recall and _SELF_REFERENTIAL.search(user_prompt):
+            context = recall            # the user's own words are the answer
+        else:
+            query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
+                     if names else user_prompt)
+            context = _rag_context(query, use_rag)
+            if recall:
+                context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None   # grounded turns answer fresh — see stream_reply
     messages = build_messages(user_prompt, history, context=context)
@@ -259,10 +273,14 @@ def stream_reply(
     # only as labeled chat-recall context (recited, not imitated), and raw
     # history is kept for persona/chat turns, where continuity is the point.
     recall, names = _chat_recall(user_prompt, history)
-    query = f"{user_prompt} {' '.join(dict.fromkeys(names))}" if names else user_prompt
-    context = _rag_context(query, use_rag)
-    if recall:
-        context = f"{context}\n\n{recall}" if context else recall
+    if recall and _SELF_REFERENTIAL.search(user_prompt):
+        context = recall                # the user's own words are the answer
+    else:
+        query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
+                 if names else user_prompt)
+        context = _rag_context(query, use_rag)
+        if recall:
+            context = f"{context}\n\n{recall}" if context else recall
     if context:
         history = None
     messages = build_messages(user_prompt, history, context=context)
