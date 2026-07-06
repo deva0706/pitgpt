@@ -51,16 +51,33 @@ _ROUTES: list[tuple[re.Pattern, list[str]]] = [
     (re.compile(r"how many.*(win|won|race)|win tally|wins (does|did|has)|"
                 r"grand prix wins", re.I),
      ["kaggle_driver", "jolpica_driver"]),
+    # Team-HISTORY questions get bio docs only too: the curated star prose
+    # ("...has driven for McLaren, Mercedes and, from 2025, Ferrari") outranked
+    # Hamilton's bio doc and the card format drifted into rambling — measured
+    # in the diag_jul06 benchmark (the one true driver_teams miss).
+    (re.compile(r"\bteams? (did|has)\b|\braced for\b|\bdrove for\b", re.I),
+     ["kaggle_driver", "jolpica_driver"]),
+    # A year alongside "Grand Prix"/"GP" is race intent regardless of verb.
+    # "Tell me about the 2021 Abu Dhabi GP" previously fell through to the
+    # DRIVER route below ("tell me about"), which starved the absence guard of
+    # race docs — it then declared real races "not held" (measured live).
+    (re.compile(r"^(?=.*\b(?:19[5-9]\d|20[0-2]\d)\b)(?=.*\b(?:grand prix|gp)\b)",
+                re.I | re.S),
+     ["kaggle_race", "jolpica_race"]),
+    # Circuit questions must reach circuit docs even when phrased "tell me
+    # about {circuit}" — previously hijacked by the driver route below.
+    (re.compile(r"circuit|track\b|where is", re.I), ["kaggle_circuit", "curated"]),
     # Driver-centric phrasings outrank the race route: "career Grand Prix win
     # tally" is a question about a DRIVER even though it contains "Grand Prix".
-    (re.compile(r"who[' i]s\b|tell me about|rundown on|teams? did|drive for|race for|"
-                r"career|win tally|how many", re.I),
+    # who(?:'s| is| was): the old class [' i] allowed only ONE char between
+    # "who" and "s", so "Who is Fernando Alonso?" never routed at all.
+    (re.compile(r"who(?:'s| is| was)\b|tell me about|rundown on|teams? did|drive for|"
+                r"race for|career|win tally|how many", re.I),
      ["kaggle_driver", "jolpica_driver", "curated", "openf1"]),
-    # A race question needs a winner-verb, not just the words "grand prix".
+    # A yearless race question still needs a winner-verb, not just "grand prix".
     (re.compile(r"(who won|winner|victory|took .*(flag|win)|crossed the line)"
                 r".*(grand prix|\bgp\b)", re.I),
      ["kaggle_race", "jolpica_race"]),
-    (re.compile(r"circuit|track\b|where is", re.I), ["kaggle_circuit", "curated"]),
 ]
 
 
@@ -119,7 +136,40 @@ def _is_conversational(query: str) -> bool:
 # leaves at least one doc, so recall can't drop below the unpinned baseline.
 _PIN_NAME = re.compile(r"\b[A-Z][a-zà-ÿ\-]+(?: [A-Z][a-zà-ÿ\-]+)+\b")
 _PIN_YEAR = re.compile(r"\b(19[5-9]\d|20[0-2]\d)\b")
-_PIN_GP = re.compile(r"\b[A-Z][a-zà-ÿ]+(?: [A-Z][a-zà-ÿ]+)* Grand Prix\b")
+
+# GP-name extraction for pinning and the absence guard. Case-INSENSITIVE on
+# purpose: the old TitleCase pattern produced no pin at all for "the 2021 Yas
+# marina Grand Prix", so an unrelated doc reached the prompt and the model
+# recited it as a race recap (measured live).
+_GP_WORD = re.compile(r"[\w'à-ÿ\-]+")
+_GP_STOP = {"the", "a", "an", "this", "that", "about", "of", "at", "in", "on",
+            "for", "was", "is", "won", "me", "tell", "to", "what", "which",
+            "who", "how", "why", "when", "and", "or"}
+
+
+def _extract_gp(query: str) -> str | None:
+    """Return the "{Name} Grand Prix" phrase from the query, or None.
+
+    Walks backwards from "grand prix" collecting up to three name words,
+    stopping at stopwords and bare years — so "who won the 2021 abu dhabi
+    grand prix?" yields "abu dhabi Grand Prix" while "what makes a grand prix
+    special?" yields None (no name words survive the trim).
+    """
+    words = _GP_WORD.findall(query)
+    lows = [w.lower() for w in words]
+    for i in range(len(lows) - 1):
+        if lows[i] == "grand" and lows[i + 1] == "prix":
+            picked: list[str] = []
+            for j in range(i - 1, max(-1, i - 4), -1):
+                w = words[j]
+                if w.lower() in _GP_STOP or _PIN_YEAR.fullmatch(w):
+                    break
+                picked.append(w)
+            if picked:
+                picked.reverse()
+                return " ".join(picked + ["Grand", "Prix"])
+            return None
+    return None
 
 
 def _fold(s: str) -> str:
@@ -132,10 +182,14 @@ def _fold(s: str) -> str:
 def _gp_matcher(gp_phrase: str):
     """Match a GP name tolerantly: users adjectivize race names ("Singaporean
     Grand Prix" for the Singapore GP), which made the absence guard decline a
-    race it demonstrably had. Falls back from the exact phrase to 5-char stems
-    of the distinctive words ("singa" hits "singapore")."""
+    race it demonstrably had. Falls back from the exact phrase to prefix stems
+    of the distinctive words. Stem length adapts to the word (len-2, clamped
+    to 5..7): a fixed 5 made "Austrian" ⊂ "AUSTRALIAN" (measured: the 1990
+    Austrian GP query recovered the 1990 Australian doc), while 5 chars must
+    survive for "Mexican" → "Mexico City" and 7 for "Singaporean" → the
+    9-letter "Singapore"."""
     full = _fold(gp_phrase)
-    stems = [_fold(w)[:5] for w in gp_phrase.split()
+    stems = [_fold(w)[:max(5, min(7, len(w) - 2))] for w in gp_phrase.split()
              if len(w) >= 5 and w.lower() not in ("grand", "prix")]
 
     def matches(text_low: str) -> bool:
@@ -149,9 +203,9 @@ def _pin(query: str, results: list[dict]) -> list[dict]:
         return kept or docs
     for year in _PIN_YEAR.findall(query):
         results = keep(results, lambda t, y=year: re.search(r"\b" + y + r"\b", t))
-    gp = _PIN_GP.search(query)
+    gp = _extract_gp(query)
     if gp:
-        results = keep(results, _gp_matcher(gp.group(0)))
+        results = keep(results, _gp_matcher(gp))
     names = [_fold(n) for n in _PIN_NAME.findall(query)]
     if names:
         results = keep(results, lambda t: any(n in t for n in names))
@@ -185,12 +239,26 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     # Stating the absence as a context fact turns the weak decline behavior
     # into the strong recitation behavior.
     year_m = _PIN_YEAR.search(query)
-    gp_m = _PIN_GP.search(query)
-    if year_m and gp_m:
-        year, gp = year_m.group(0), gp_m.group(0)
+    gp = _extract_gp(query)
+    if year_m and gp:
+        year = year_m.group(0)
         gp_match = _gp_matcher(gp)   # stem-tolerant: "Singaporean" ≈ "Singapore"
-        if not any(re.search(r"\b" + year + r"\b", _fold(d.get("text", "")))
-                   and gp_match(_fold(d.get("text", ""))) for d in results):
+
+        def _covers(d: dict) -> bool:
+            t = _fold(d.get("text", ""))
+            return bool(re.search(r"\b" + year + r"\b", t)) and gp_match(t)
+
+        if not any(_covers(d) for d in results):
+            # Verify against the WHOLE corpus before declaring absence: a
+            # routing or ranking miss must not masquerade as history. Measured
+            # live: "tell me about the 2021 Abu Dhabi GP" was routed to driver
+            # docs and then declared never-held. If the corpus does hold the
+            # race, recover its docs (race results first) instead of lying.
+            recovered = [d for d in retriever.docs if _covers(d)]
+            if recovered:
+                recovered.sort(
+                    key=lambda d: 0 if d.get("source", "").endswith("_race") else 1)
+                return recovered[:k]
             return [{
                 "text": (f"There is no {year} {gp} in the historical race "
                          f"records — that Grand Prix was not held in {year}."),

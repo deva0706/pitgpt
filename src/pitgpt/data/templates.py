@@ -52,7 +52,8 @@ def adheres(category: str, answer: str) -> bool:
 # ---- render helpers: the exact strings the dataset teaches ---------------- #
 
 def race_winner_reply(winner: str, year: int | str, gp: str, team: str = "",
-                      pole: str = "", podium: list[str] | None = None) -> str:
+                      pole: str = "", podium: list[str] | None = None,
+                      venue: str = "") -> str:
     text = f"{winner} got the chequered flag at the {year} {gp}!"
     if team:
         text += f" Driving for {team}."
@@ -60,6 +61,8 @@ def race_winner_reply(winner: str, year: int | str, gp: str, team: str = "",
         text += f" Pole position: {pole}."
     if podium:
         text += f" Podium completed by {' and '.join(podium)}."
+    if venue:
+        text += f" Held at {venue}."
     return text
 
 
@@ -113,3 +116,14 @@ def decline_reply(covered: str = "") -> str:
         return (f"Box, box — that one's not in my notes, so I won't guess. "
                 f"What I've got here covers {covered}, nothing else.")
     return DECLINE
+
+
+def absence_reply(year: int | str, gp: str) -> str:
+    """Recite an absence fact: the race demonstrably wasn't held that year.
+
+    Distinct from ``decline_reply`` (context doesn't cover the question):
+    here the context DOES cover it — the answer is "no such race". Opens with
+    the decline signature so honesty scoring still recognizes it.
+    """
+    return (f"Box, box — there's no {year} {gp} on the record: that race "
+            f"wasn't held in {year}, so there's nothing to recap.")

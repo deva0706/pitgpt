@@ -113,26 +113,100 @@ def _season_driver_rows(rng: random.Random, n: int) -> list[dict]:
 
 
 def _race_recap_rows(rng: random.Random, n: int) -> list[dict]:
-    """Context: a race doc, sometimes with pole/podium. Answer: chequered-flag
-    call carrying over exactly the details the context provides."""
+    """Context: a race doc, sometimes with pole/podium/venue — matching the
+    circuit-enriched corpus shape. Answer: chequered-flag call carrying over
+    exactly the details the context provides.
+
+    Question phrasings include the "tell me about" family (previously only
+    winner-verb forms were trained — the phrasing users actually typed live
+    was out of distribution) and, when the context names a venue, the
+    circuit-as-race-name forms ("Who won at {circuit} in {year}?") — the exact
+    mapping the measured Silverstone misrecitation missed."""
     rows = []
     for _ in range(n):
         year = rng.randint(1970, 2026)
         gp = rng.choice(GRANDS_PRIX)
         winner, team = rng.choice(DRIVERS), rng.choice(TEAMS)
         ctx = f"- The {year} {gp} was won by {winner}, driving for {team}."
-        pole, podium = "", []
+        pole, podium, venue, circuit = "", [], "", None
         if rng.random() < 0.6:
             pole = rng.choice([d for d in DRIVERS if d != winner])
             ctx += f" Pole position: {pole}."
         if rng.random() < 0.6:
             podium = rng.sample([d for d in DRIVERS if d != winner], 2)
             ctx += f" Podium completed by {podium[0]} and {podium[1]}."
-        a = T.race_winner_reply(winner, year, gp, team, pole, podium)
+        if rng.random() < 0.6:
+            circuit, where = rng.choice(CIRCUITS)   # counterfactual pairing
+            venue = f"{circuit} in {where}"
+            ctx += f" Held at {venue}."
+        a = T.race_winner_reply(winner, year, gp, team, pole, podium, venue)
+        qs = [f"Who won the {year} {gp}?",
+              f"Who took victory at the {year} {gp}?",
+              f"Who crossed the line first at the {year} {gp}?",
+              f"Who got the win at the {year} {gp}?",
+              f"Tell me about the {year} {gp}.",
+              f"What happened at the {year} {gp}?",
+              f"Give me the rundown on the {year} {gp}.",
+              f"How was the {year} {gp}?"]
+        if circuit:
+            qs += [f"Who won at {circuit} in {year}?",
+                   f"Who won the {year} race at {circuit}?"]
+        rows.append(_row(ctx, rng.choice(qs), a))
+    return rows
+
+
+def _absence_rows(rng: random.Random, n: int) -> list[dict]:
+    """Context: the absence guard's injected fact. Answer: recite the absence.
+
+    The guard shipped after the last adapter was trained, so the model had
+    never seen this context shape and improvised — measured live as a
+    self-contradictory decline ("covers the 2020 Monaco Grand Prix, nothing
+    else") and once as a confabulated 'festival' recap. Counterfactual by
+    construction: random year×GP pairs, so only the recitation is learnable."""
+    rows = []
+    for _ in range(n):
+        year = rng.randint(1950, 2026)
+        gp = rng.choice(GRANDS_PRIX)
+        ctx = (f"- There is no {year} {gp} in the historical race records — "
+               f"that Grand Prix was not held in {year}.")
+        a = T.absence_reply(year, gp)
         q = rng.choice([f"Who won the {year} {gp}?",
-                        f"Who took victory at the {year} {gp}?",
-                        f"Who crossed the line first at the {year} {gp}?",
-                        f"Who got the win at the {year} {gp}?"])
+                        f"Tell me about the {year} {gp}.",
+                        f"What happened at the {year} {gp}?",
+                        f"Who was on pole at the {year} {gp}?",
+                        f"Give me the rundown on the {year} {gp}.",
+                        f"How was the {year} {gp}?"])
+        rows.append(_row(ctx, q, a))
+    return rows
+
+
+def _prose_card_rows(rng: random.Random, n: int) -> list[dict]:
+    """Context: curated-style star prose — titles first, teams buried
+    mid-sentence — NOT the bio-doc shape. The card format must extract the
+    team list from prose: measured live (diag_jul06) as Hamilton's card
+    drifting into a persona ramble when only the curated doc was retrieved.
+    Identity questions ("Who is X?") still route to curated docs, so the
+    behavior needs to survive this context shape."""
+    rows = []
+    for _ in range(n):
+        name = rng.choice(DRIVERS)
+        titles = rng.choice([2, 3, 4, 5, 7])
+        teams = rng.sample(TEAMS, rng.randint(2, 4))
+        team_prose = (", ".join(teams[:-1]) + f" and {teams[-1]}"
+                      if len(teams) > 1 else teams[0])
+        ctx = (f"- {name} has won {titles} Formula 1 World Drivers' "
+               f"Championships. He holds several records, and has driven "
+               f"for {team_prose}.")
+        if rng.random() < 0.5:
+            year = rng.randint(2020, 2026)
+            ctx += (f"\n- In the {year} Formula 1 season, {name} raced "
+                    f"for {teams[-1]}.")
+        a = T.driver_card_reply(name, "", "", teams, 0)
+        a += f" {titles} World Championships."
+        q = rng.choice([f"Who is {name}?",
+                        f"Tell me about {name}.",
+                        f"What teams did {name} race for?",
+                        f"Give me the rundown on {name}."])
         rows.append(_row(ctx, q, a))
     return rows
 
@@ -335,8 +409,10 @@ def build_final_rows(seed: int = 42) -> list[dict[str, str]]:
     rows: list[dict] = []
     # The user's formats, grounded and counterfactual:
     rows += _driver_card_rows(rng, 260)
+    rows += _prose_card_rows(rng, 90)
     rows += _season_driver_rows(rng, 80)
     rows += _race_recap_rows(rng, 240)
+    rows += _absence_rows(rng, 110)
     rows += _champion_rows(rng, 200)
     rows += _constructors_rows(rng, 80)
     rows += _circuit_rows(rng, 80)

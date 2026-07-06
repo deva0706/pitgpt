@@ -1,5 +1,25 @@
 # PitGPT — Autonomous Build STATUS
 
+> **2026-07-07 update — retrieval-routing overhaul shipped; retrain rolled back.**
+> Live-reported failures ("Tell me about the 2021 Abu Dhabi GP" → falsely
+> declared never-held; "Yas Marina GP" aliases → false absences or wrong-race
+> recitals) were root-caused to the QUERY layer, not the model: route order
+> sent tell-me-about race queries to driver docs, and the absence guard
+> validated against that starved slice. Shipped fixes (all in `retriever.py`/
+> `kb_builder.py`, no retraining): race-intent route for year+GP queries,
+> corpus-wide absence verification with doc recovery, case-insensitive GP
+> pinning, circuit names on all 1,125 race docs, teams-route narrowing, plus
+> "who is" route and Austrian/Australian stem-collision bugfixes. 15 new
+> regression tests (35 total). Facts benchmark on the SAME adapter: 98% → 99%
+> (`facts_report_diag_postfix.md`); all live failures reproduce-then-pass.
+> A retrain against the remaining behavior gaps (absence recitation, venue
+> phrasings, prose cards; `pitgpt-lora-v5-absence/`) fixed its targets but
+> mangled GP names on a common phrasing (96%, one new confident-wrong) and
+> was **rolled back** — see that adapter's README for the root-cause
+> hypothesis (venue counterfactuals must keep real GP↔circuit pairs) and the
+> planned next iteration. Shipped adapter remains v4 (byte-identical to
+> `pitgpt-lora-v4-final`).
+
 > **2026-07-04 update — formats + accuracy overnight build shipped.**
 > Facts benchmark **23% → 97% strict** (confident-wrong 2%), user reply
 > formats at **98% adherence**, corpus 2,381 docs incl. live 2024–26 seasons.

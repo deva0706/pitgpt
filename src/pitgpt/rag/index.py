@@ -110,6 +110,12 @@ class FactRetriever:
         logger.info("Loaded RAG index (%d docs) from %s", len(self._docs), index_dir)
         return self
 
+    @property
+    def docs(self) -> list[dict[str, str]]:
+        """The full document list — the absence guard verifies a miss against
+        the whole corpus (not just the routed slice) before declaring it."""
+        return self._docs
+
     # ---- query ----
     def retrieve(
         self,

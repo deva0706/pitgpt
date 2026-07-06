@@ -72,6 +72,11 @@ def race_winner_docs(t: dict) -> list[dict]:
     by_race: dict[str, list[dict]] = defaultdict(list)
     for r in t["results"]:
         by_race[r["raceId"]].append(r)
+    # Circuit names bridge the venue-alias gap: users say "Yas Marina Grand
+    # Prix" for the Abu Dhabi GP, and without the circuit in the race doc no
+    # retrieval signal (BM25, pin stem, absence-guard scan) can ever connect
+    # the two — measured live as a false "not held" decline.
+    circuits_by_id = {c["circuitId"]: c for c in t["circuits"]}
     docs = []
     for race_id, rs in by_race.items():
         race = t["races"].get(race_id)
@@ -98,6 +103,10 @@ def race_winner_docs(t: dict) -> list[dict]:
         rest = [podium[p][0] for p in ("2", "3") if p in podium]
         if rest:
             text += f" Podium completed by {' and '.join(rest)}."
+        circ = circuits_by_id.get(race.get("circuitId"))
+        if circ:
+            text += (f" Held at {circ['name']} in {circ['location']}, "
+                     f"{circ['country']}.")
         docs.append(_doc(text, "kaggle_race"))
     return docs
 
