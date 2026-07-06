@@ -108,11 +108,16 @@ def _encode(tokenizer, messages: list[Message], device) -> dict:
     return {"input_ids": encoded.to(device)}
 
 
-def _generation_kwargs() -> dict:
-    """Translate our GenerationConfig dataclass into generate() kwargs."""
+def _generation_kwargs(grounded: bool = True) -> dict:
+    """Translate our GenerationConfig dataclass into generate() kwargs.
+
+    Ungrounded persona turns get a shorter budget: the fabricated years and
+    stats in free chat live in sentence four onward of the long rambles
+    (measured live — "in '17 he won it" about Alonso). Short and warm beats
+    long and wrong."""
     g = settings.generation
     return {
-        "max_new_tokens": g.max_new_tokens,
+        "max_new_tokens": g.max_new_tokens if grounded else min(g.max_new_tokens, 110),
         "temperature": g.temperature,
         "top_p": g.top_p,
         "top_k": g.top_k,
@@ -299,7 +304,7 @@ def generate_reply(
     output_ids = model.generate(
         **inputs,
         pad_token_id=tokenizer.pad_token_id,
-        **_generation_kwargs(),
+        **_generation_kwargs(grounded=bool(context)),
     )
     # Only decode the newly generated tokens, not the prompt we fed in.
     new_tokens = output_ids[0, prompt_len:]
@@ -353,7 +358,7 @@ def stream_reply(
         **inputs,
         "streamer": streamer,
         "pad_token_id": tokenizer.pad_token_id,
-        **_generation_kwargs(),
+        **_generation_kwargs(grounded=bool(context)),
     }
 
     thread = Thread(target=model.generate, kwargs=generation_kwargs)

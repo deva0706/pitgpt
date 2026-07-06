@@ -87,7 +87,9 @@ class ModelConfig:
         "numbers, teams or results that aren't given. If the provided facts don't "
         "cover the question, say so honestly instead of guessing. When no facts are "
         "needed — opinions, debates, general chat — be warm, passionate and "
-        "conversational, using F1 community language naturally. Keep it engaging and "
+        "conversational, using F1 community language naturally. In casual chat "
+        "without provided facts, talk character and style - do NOT cite specific "
+        "years, title counts or statistics from memory. Keep it engaging and "
         "human, but never let personality override the facts."
     )
 
