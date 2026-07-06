@@ -124,23 +124,32 @@ footer {{ display: none !important; }}
     border: none !important;
 }}
 #pg-chat .message-bubble-border {{ display: none !important; }}
+/* Gradio nests TWO elements matching .message per row — styling .message
+   painted double labels, double bars, and a phantom tinted block (seen in
+   the user's screenshot). All chrome lives on .message-content: exactly one
+   per message. .message itself is fully neutralized. */
 #pg-chat .message {{
     border: none !important;
-    border-radius: 3px !important;
+    background: transparent !important;
+    padding: 0 !important;
+    box-shadow: none !important;
     max-width: 82%;
+}}
+#pg-chat .message::before {{ content: none !important; }}
+#pg-chat .message-content {{
+    border-radius: 3px !important;
     padding: 10px 14px !important;
     font-size: 0.98rem !important;
     line-height: 1.6 !important;
     font-family: {_SANS} !important;
-    background: transparent !important;
 }}
 /* PitGPT rows: teal edge bar + mono label line */
-#pg-chat .bot-row .message {{
+#pg-chat .bot-row .message-content {{
     background: #151b21 !important;
     border-left: 3px solid var(--pw-teal) !important;
     color: var(--pw-text) !important;
 }}
-#pg-chat .bot-row .message::before {{
+#pg-chat .bot-row .message-content::before {{
     content: "PITGPT ▮ RACE ENGINEER";
     display: block;
     margin-bottom: 6px;
@@ -149,12 +158,12 @@ footer {{ display: none !important; }}
 }}
 /* User rows: red edge bar + mono label line, right-aligned */
 #pg-chat .user-row {{ justify-content: flex-end !important; }}
-#pg-chat .user-row .message {{
+#pg-chat .user-row .message-content {{
     background: #1e1216 !important;
     border-right: 3px solid var(--pw-red) !important;
     color: #ffffff !important;
 }}
-#pg-chat .user-row .message::before {{
+#pg-chat .user-row .message-content::before {{
     content: "YOU ▸";
     display: block;
     text-align: right;
