@@ -165,7 +165,7 @@ _SELF_REFERENTIAL = re.compile(
     # not "is/are my".
     r"\b(what|which)\s+(is|are|was|were)\s+my\b"
     r"|\btell me my\b"
-    r"|\bwhat did i (say|tell|mention|ask)\b", re.I)
+    r"|\bwhat (did i|have i) (say|said|tell|told|mention(ed)?|ask(ed)?)\b", re.I)
 
 # The radio log must quote what the user STATED, never their questions —
 # live it echoed "Tell me what are my favourite Grand Prix" back as a
@@ -175,6 +175,16 @@ _QUESTIONISH = re.compile(
     r"\?|^\W*(so\s+|yes\s+|ok(ay)?\s+)*"
     r"(what|who|when|where|which|why|how|tell|explain|give|can|could|do|does|did)\b",
     re.I)
+
+# "...is Fernando Alonso, ok?" is a STATEMENT — the trailing tag-question
+# made _QUESTIONISH discard the user's own declaration (measured: the radio
+# log replied "nothing on that from you yet" right after it).
+_TAG_QUESTION = re.compile(
+    r"[,;\s]*\b(ok(ay)?|right|yeah|yes|no|agreed|got it)\?\s*$", re.I)
+
+
+def _strip_tag_question(text: str) -> str:
+    return _TAG_QUESTION.sub("", text).strip()
 
 
 def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | None:
@@ -189,7 +199,7 @@ def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | N
     """
     if not (history and _SELF_REFERENTIAL.search(user_prompt)):
         return None
-    statements = [_content_to_text(t.get("content"))[:220]
+    statements = [_strip_tag_question(_content_to_text(t.get("content"))[:220])
                   for t in history[-8:] if t.get("role") == "user"]
     statements = [s for s in statements
                   if s and _RECALL_CUE.search(s) and not _QUESTIONISH.search(s)]
@@ -201,6 +211,41 @@ def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | N
             f"{quoted}\n"
             f"That's straight from your own transmissions. Want the full "
             f"telemetry on any of them?")
+
+
+# "Who is my favourite driver?" is a LOOKUP, not an enumeration: the user
+# wants their stated name back WITH its data card. Measured 2026-07-07:
+# retrieval returned the Alonso bio doc and the adapter still declined — the
+# recall-block context shape is untrained (see _radio_log_reply). So the
+# recall half is answered deterministically, and the model generates only
+# the part it is reliably trained on: the identity card for the named entity.
+_FAV_LOOKUP = re.compile(
+    r"\bwho(?:'s|\s+(?:is|was))\s+my\s+favou?rite\s*(\w*)", re.I)
+
+
+def _favourite_lookup(
+    user_prompt: str, history: list[Message] | None
+) -> tuple[str, str | None] | None:
+    """Resolve "who is my favourite {noun}?" from the user's own statements.
+
+    Returns None when the question isn't a favourite lookup. Otherwise
+    ``(text, rewritten)``: ``rewritten`` is None for a terminal no-statement
+    reply, or a "Tell me about {name}." prompt to generate the data card,
+    with ``text`` as its deterministic radio-log prefix. With several stated
+    favourites the most recent statement wins.
+    """
+    m = _FAV_LOOKUP.search(user_prompt)
+    if not (history and m):
+        return None
+    _, names = _chat_recall(user_prompt, history)
+    if not names:
+        return ("Checking the radio log — nothing on that from you yet. "
+                "Tell me and I'll keep it on file!", None)
+    name = names[-1]
+    noun = (m.group(1) or "").lower()
+    what = f"favourite {noun}" if noun else "favourite"
+    return (f"Checking the radio log — your {what} on record is {name}. ",
+            f"Tell me about {name}.")
 
 
 def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, list[str]]:
@@ -247,7 +292,8 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
         # also stay out of the quoted lines (their names still count): a
         # recalled junk question in context derailed an unrelated turn live.
         names.extend(raw_names)
-        if role == "user" and not _QUESTIONISH.search(text):
+        text = _strip_tag_question(text)
+        if role == "user" and text and not _QUESTIONISH.search(text):
             lines.append(f"- Earlier in this chat, the user said: {text}")
             stated_names.extend(raw_names)
     # "Who is my favorite driver?" after a Vettel statement pulled names from
@@ -278,6 +324,7 @@ def generate_reply(
     how the evaluation harness injects *gold* context to measure generation
     grounding in isolation from retrieval quality.
     """
+    prefix = ""
     if context is None:
         # Radio log outranks the conversational gate: "what is my favourite
         # corn drink?" is off-topic AND self-referential — the log must answer
@@ -285,6 +332,12 @@ def generate_reply(
         log_reply = _radio_log_reply(user_prompt, history)
         if log_reply is not None:
             return log_reply
+        fav = _favourite_lookup(user_prompt, history)
+        if fav is not None:
+            text, rewritten = fav
+            if rewritten is None:
+                return text
+            prefix, user_prompt = text, rewritten
         from pitgpt.rag.retriever import _is_conversational
         if _is_conversational(user_prompt):
             context = ""    # statements/chat: persona path, history intact
@@ -308,7 +361,7 @@ def generate_reply(
     )
     # Only decode the newly generated tokens, not the prompt we fed in.
     new_tokens = output_ids[0, prompt_len:]
-    return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+    return prefix + tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
 @torch.inference_mode()
@@ -336,6 +389,15 @@ def stream_reply(
     if log_reply is not None:
         yield log_reply
         return
+    prefix = ""
+    fav = _favourite_lookup(user_prompt, history)
+    if fav is not None:
+        text, rewritten = fav
+        if rewritten is None:
+            yield text
+            return
+        prefix, user_prompt = text, rewritten
+        yield prefix
     from pitgpt.rag.retriever import _is_conversational
     if _is_conversational(user_prompt):
         context = ""        # statements/chat: persona path, history intact
@@ -367,7 +429,7 @@ def stream_reply(
     partial = ""
     for token_text in streamer:
         partial += token_text
-        yield partial
+        yield prefix + partial
     thread.join()
 
 
