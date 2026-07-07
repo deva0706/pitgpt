@@ -78,3 +78,28 @@ def test_fav_lookup_survives_long_chats_and_ignores_answer_names():
     assert "Fernando Alonso" in prefix
     assert rewritten == "Tell me about Fernando Alonso."
     assert "Autodromo" not in prefix
+
+
+def test_fav_lookup_rejects_title_phrases_as_names():
+    """Measured live: a favourite stated by DESCRIPTION ('...the World
+    Champion') made the lookup answer 'your favourite driver on record is
+    World Champion' and card the wrong entity. Title phrases are not names;
+    with no proper name stated, the honest ask-me reply must fire."""
+    hist = [
+        {"role": "user",
+         "content": "My favourite driver is the World Champion."},
+        {"role": "assistant", "content": "Love the confidence!"},
+    ]
+    got = E._favourite_lookup("Who is my favorite driver?", hist)
+    assert got is not None
+    prefix, rewritten = got
+    assert rewritten is None and "nothing on that" in prefix
+
+    # A real name in the same sentence still wins.
+    hist2 = [
+        {"role": "user",
+         "content": "My favourite driver is the World Champion, Max Verstappen."},
+        {"role": "assistant", "content": "Good pick!"},
+    ]
+    got2 = E._favourite_lookup("Who is my favorite driver?", hist2)
+    assert got2 is not None and got2[1] == "Tell me about Max Verstappen."

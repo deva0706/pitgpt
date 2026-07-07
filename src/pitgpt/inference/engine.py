@@ -244,6 +244,13 @@ def _favourite_lookup(
     # Nazionale" (a circuit from the previous Monza reply).
     from pitgpt.rag.retriever import _PIN_NAME
 
+    # Capitalized TITLE phrases are descriptions, not names: "my favourite
+    # driver is the World Champion" produced "your favourite driver on
+    # record is World Champion" live, and the card answered the wrong
+    # entity. Exact-match only — "Monaco Grand Prix" stays a valid favourite.
+    non_names = {"world champion", "world championship", "grand prix",
+                 "formula one", "formula 1", "drivers championship",
+                 "world drivers championship"}
     stated: list[str] = []
     for t in history:
         if t.get("role") != "user":
@@ -252,7 +259,8 @@ def _favourite_lookup(
         if (not text or _QUESTIONISH.search(text)
                 or not re.search(r"favou?rite", text, re.I)):
             continue
-        stated.extend(_PIN_NAME.findall(text))
+        stated.extend(n for n in _PIN_NAME.findall(text)
+                      if n.lower().replace("'", "") not in non_names)
     if not stated:
         return ("Checking the radio log — nothing on that from you yet. "
                 "Tell me and I'll keep it on file!", None)
