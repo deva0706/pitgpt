@@ -237,11 +237,26 @@ def _favourite_lookup(
     m = _FAV_LOOKUP.search(user_prompt)
     if not (history and m):
         return None
-    _, names = _chat_recall(user_prompt, history)
-    if not names:
+    # Scan the WHOLE history, and only the user's own favourite STATEMENTS.
+    # _chat_recall's window (last 8 turns) lost the statement after five
+    # exchanges, and its fallback names include the bot's answer entities —
+    # measured live as "your favourite driver on record is Autodromo
+    # Nazionale" (a circuit from the previous Monza reply).
+    from pitgpt.rag.retriever import _PIN_NAME
+
+    stated: list[str] = []
+    for t in history:
+        if t.get("role") != "user":
+            continue
+        text = _strip_tag_question(_content_to_text(t.get("content"))[:220])
+        if (not text or _QUESTIONISH.search(text)
+                or not re.search(r"favou?rite", text, re.I)):
+            continue
+        stated.extend(_PIN_NAME.findall(text))
+    if not stated:
         return ("Checking the radio log — nothing on that from you yet. "
                 "Tell me and I'll keep it on file!", None)
-    name = names[-1]
+    name = stated[-1]
     noun = (m.group(1) or "").lower()
     what = f"favourite {noun}" if noun else "favourite"
     return (f"Checking the radio log — your {what} on record is {name}. ",
