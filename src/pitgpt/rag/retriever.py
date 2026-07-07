@@ -189,11 +189,33 @@ def _gp_matcher(gp_phrase: str):
     survive for "Mexican" → "Mexico City" and 7 for "Singaporean" → the
     9-letter "Singapore"."""
     full = _fold(gp_phrase)
-    stems = [_fold(w)[:max(5, min(7, len(w) - 2))] for w in gp_phrase.split()
-             if len(w) >= 5 and w.lower() not in ("grand", "prix")]
+    checks = []          # one predicate per name word
+    for w in gp_phrase.split():
+        if w.lower() in ("grand", "prix"):
+            continue
+        if len(w) >= 5:
+            stem = _fold(w)[:max(5, min(7, len(w) - 2))]
+            checks.append(lambda t, s=stem: s in t)
+        elif len(w) >= 3:
+            # Short venue names ("Spa", "Yas") produced NO stems, so the
+            # guard declared the 2018 Spa GP never-held (measured). They
+            # match as whole words — a prefix would make "Spa" hit "SPAnish".
+            pat = re.compile(r"\b" + re.escape(_fold(w)) + r"\b")
+            checks.append(lambda t, p=pat: bool(p.search(t)))
+
+    def score(text_low: str) -> int:
+        """How many of the name words the text matches. Ambiguous aliases
+        need this: "Yas Marina" matches the Singapore doc via "MARINA Bay"
+        (measured: the 2022 Yas Marina GP answered with the Singapore
+        result) — the doc matching BOTH words must win."""
+        if full in text_low:
+            return len(checks) + 1
+        return sum(c(text_low) for c in checks)
 
     def matches(text_low: str) -> bool:
-        return full in text_low or any(s in text_low for s in stems)
+        return score(text_low) > 0
+
+    matches.score = score
     return matches
 
 
@@ -205,7 +227,15 @@ def _pin(query: str, results: list[dict]) -> list[dict]:
         results = keep(results, lambda t, y=year: re.search(r"\b" + y + r"\b", t))
     gp = _extract_gp(query)
     if gp:
-        results = keep(results, _gp_matcher(gp))
+        matcher = _gp_matcher(gp)
+        results = keep(results, matcher)
+        # Among matching docs, keep only the best word-coverage tier so a
+        # one-word alias overlap can't outrank the actual venue.
+        best = max((matcher.score(_fold(d.get("text", ""))) for d in results),
+                   default=0)
+        if best > 0:
+            results = [d for d in results
+                       if matcher.score(_fold(d.get("text", ""))) == best]
     names = [_fold(n) for n in _PIN_NAME.findall(query)]
     if names:
         results = keep(results, lambda t: any(n in t for n in names))
@@ -256,8 +286,12 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
             # race, recover its docs (race results first) instead of lying.
             recovered = [d for d in retriever.docs if _covers(d)]
             if recovered:
-                recovered.sort(
-                    key=lambda d: 0 if d.get("source", "").endswith("_race") else 1)
+                recovered.sort(key=lambda d: (
+                    -gp_match.score(_fold(d.get("text", ""))),
+                    0 if d.get("source", "").endswith("_race") else 1))
+                best = gp_match.score(_fold(recovered[0].get("text", "")))
+                recovered = [d for d in recovered
+                             if gp_match.score(_fold(d.get("text", ""))) == best]
                 return recovered[:k]
             return [{
                 "text": (f"There is no {year} {gp} in the historical race "

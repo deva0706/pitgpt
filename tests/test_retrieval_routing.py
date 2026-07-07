@@ -95,6 +95,17 @@ def test_gp_matcher_keeps_adjective_tolerance():
         "the 2022 mexico city grand prix was won by max verstappen")
 
 
+def test_gp_matcher_handles_short_venue_names():
+    """Words under 5 chars produced NO stems, so 'Spa Grand Prix' matched
+    nothing and the guard declared the 2018 Belgian GP never-held (measured).
+    Short words must match as whole words — a bare prefix would make 'Spa'
+    hit 'SPAnish'."""
+    m = R._gp_matcher("Spa Grand Prix")
+    assert m("the 2018 belgian grand prix ... held at circuit de "
+             "spa-francorchamps in spa, belgium")
+    assert not m("the 2018 spanish grand prix was won by lewis hamilton")
+
+
 # --------------------------------------------------------------------------- #
 # Absence guard: corpus-wide verification + recovery
 # --------------------------------------------------------------------------- #
@@ -156,6 +167,35 @@ def test_guard_recovers_circuit_alias_via_enriched_doc(fake_retriever):
     facts = R.retrieve_facts("Who won the 2021 Yas Marina Grand Prix?")
     assert any("Verstappen" in d["text"] for d in facts)
     assert all(d["source"] != "absence_guard" for d in facts)
+
+
+RACE_2022_AD = {
+    "text": ("The 2022 Abu Dhabi Grand Prix was won by Max Verstappen, driving "
+             "for Red Bull. Held at Yas Marina Circuit in Abu Dhabi, UAE."),
+    "source": "kaggle_race",
+}
+RACE_2022_SG = {
+    "text": ("The 2022 Singapore Grand Prix was won by Sergio Perez, driving "
+             "for Red Bull. Held at Marina Bay Street Circuit in Marina Bay, "
+             "Singapore."),
+    "source": "kaggle_race",
+}
+
+
+def test_alias_pin_prefers_doc_matching_more_name_words(fake_retriever):
+    """'Yas Marina' matched the SINGAPORE doc via 'Marina Bay' (measured:
+    2022 Yas Marina GP answered with the Singapore result). The doc matching
+    both name words must beat the doc matching one."""
+    fake_retriever([RACE_2022_AD, RACE_2022_SG], [RACE_2022_SG, RACE_2022_AD])
+    facts = R.retrieve_facts("Who won the 2022 Yas Marina Grand Prix?")
+    assert facts and "Abu Dhabi" in facts[0]["text"]
+    assert not any("Singapore" in d["text"] for d in facts)
+
+
+def test_alias_pin_marina_bay_still_reaches_singapore(fake_retriever):
+    fake_retriever([RACE_2022_AD, RACE_2022_SG], [RACE_2022_AD, RACE_2022_SG])
+    facts = R.retrieve_facts("Who won the 2022 Marina Bay Grand Prix?")
+    assert facts and "Singapore" in facts[0]["text"]
 
 
 def test_guard_still_fires_on_true_absence(fake_retriever):
