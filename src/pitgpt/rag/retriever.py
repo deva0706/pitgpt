@@ -157,8 +157,12 @@ def _extract_gp(query: str) -> str | None:
     """
     words = _GP_WORD.findall(query)
     lows = [w.lower() for w in words]
-    for i in range(len(lows) - 1):
-        if lows[i] == "grand" and lows[i + 1] == "prix":
+    for i in range(len(lows)):
+        # "GP" is the same race as "Grand Prix" ("2007 Singapore GP"); without
+        # this the never-held guard silently skipped abbreviated queries.
+        is_gp = lows[i] == "gp" or (
+            lows[i] == "grand" and i + 1 < len(lows) and lows[i + 1] == "prix")
+        if is_gp:
             picked: list[str] = []
             for j in range(i - 1, max(-1, i - 4), -1):
                 w = words[j]

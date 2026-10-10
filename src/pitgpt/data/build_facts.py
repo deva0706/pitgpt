@@ -26,7 +26,6 @@ def build_combined(seed: int = 42) -> list[dict[str, str]]:
 def main() -> None:
     rows = build_combined()
     path = write_dataset(rows, settings.paths.dataset_raw)
-    n_facts = sum(1 for r in rows if not r.get("context") and r not in ())
     print(f"Built {len(rows)} rows "
           f"({len(build_fact_rows())} real-fact QA + persona).")
     print(f"Written to: {path}")

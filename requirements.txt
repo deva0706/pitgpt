@@ -1,5 +1,5 @@
 # =============================================================================
-# PitGPT — Offline F1 Race Engineer (SmolLM2-360M + QLoRA)
+# PitGPT — Offline F1 Race Engineer (Gemma-3-1B + QLoRA)
 # =============================================================================
 # Install with:   pip install -r requirements.txt
 #
@@ -13,7 +13,7 @@
 torch>=2.2.0                 # tensors + autograd; everything below sits on this
 
 # --- Hugging Face ecosystem ---
-transformers>=4.44.0         # loads SmolLM2-360M, tokenizer, chat template, .generate()
+transformers>=4.44.0         # loads the base model, tokenizer, chat template, .generate()
 datasets>=2.20.0             # memory-mapped dataset loading & formatting
 accelerate>=0.33.0           # device placement + mixed precision (trainer backend)
 

@@ -3,7 +3,7 @@ templating.py — robustly apply a tokenizer chat template across model families
 
 Different base models expose different chat templates. Notably:
 
-* SmolLM2 (ChatML) accepts a ``system`` role.
+* ChatML-style templates (e.g. SmolLM2) accept a ``system`` role.
 * **Gemma** does *not* — its template raises if you pass a ``system`` message.
 
 To keep the rest of the codebase model-agnostic, we always *build* messages with

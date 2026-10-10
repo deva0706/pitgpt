@@ -68,11 +68,9 @@ class Paths:
 class ModelConfig:
     """Which base model we fine-tune, and where the trained adapter lands."""
 
-    # SmolLM2-360M-Instruct: 360M params, already instruction-tuned, ~720 MB.
-    # Gemma-3-1B (gated; requires a one-time `huggingface-cli login`). Larger than
-    # SmolLM2-360M, so it holds F1 facts noticeably better while still fitting a
+    # Gemma-3-1B-it (gated; requires a one-time `huggingface-cli login`). Fits a
     # 4 GB card in 4-bit. Override with the PITGPT_BASE_MODEL env var, e.g.
-    # `HuggingFaceTB/SmolLM2-360M-Instruct` for the lighter, no-login model.
+    # `HuggingFaceTB/SmolLM2-360M-Instruct` for a smaller, no-login model.
     base_model_id: str = os.environ.get(
         "PITGPT_BASE_MODEL", "google/gemma-3-1b-it"
     )
@@ -128,7 +126,7 @@ class LoraConfig:
     lora_dropout: float = 0.05        # regularization on the adapter path
     bias: str = "none"                # do not train biases
     task_type: str = "CAUSAL_LM"
-    # Which linear layers get an adapter. For Llama-style blocks (SmolLM2) these
+    # Which linear layers get an adapter. For Llama/Gemma-style blocks these
     # are the attention projections + the MLP projections.
     target_modules: tuple[str, ...] = (
         "q_proj", "k_proj", "v_proj", "o_proj",

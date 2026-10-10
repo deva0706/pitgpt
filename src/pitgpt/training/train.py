@@ -1,5 +1,5 @@
 """
-train.py — QLoRA fine-tuning of SmolLM2 into PitGPT.
+train.py — QLoRA fine-tuning of the base model into PitGPT.
 
 Pipeline
 --------

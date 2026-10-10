@@ -53,7 +53,7 @@ entity pinning filters mismatched context before the model sees it.
 
 - **Base model:** google/gemma-3-1b-it (gated — one-time `huggingface-cli login`)
 - **Adapter:** ~13 M trainable params (~2%) — persona, grounding, styles; zero facts
-- **Knowledge:** 2,270 atomic fact docs (Kaggle 1950-2024 + curated rules + OpenF1)
+- **Knowledge:** 2,381 atomic fact docs (Kaggle 1950-2024 + curated rules + OpenF1)
 - **Retrieval:** MiniLM dense + BM25, reciprocal-rank fusion, query-aware routing
 - **Hardware:** RTX 3050 Laptop, 4 GB VRAM, Windows — batch 1×16, seq 384,
   gradient checkpointing, paged 8-bit AdamW, bf16
@@ -68,7 +68,7 @@ resource: each phase ships teaching notes and Q&A.
 
 ## Features
 
-- 🔍 **Hybrid RAG** over 2,270 atomic fact docs: MiniLM dense + BM25 lexical,
+- 🔍 **Hybrid RAG** over 2,381 atomic fact docs: MiniLM dense + BM25 lexical,
   fused by reciprocal rank, with query-aware source routing (driver questions →
   bio docs, race questions → result docs) that fixed a measured
   popular-entity ranking failure.
@@ -82,7 +82,7 @@ resource: each phase ships teaching notes and Q&A.
 - 📏 **Two benchmark harnesses** (grounding + factual A/B), resumable JSONL
   runs, markdown scorecards — every claim in this README has a number behind it.
 - 💬 **Streaming Gradio chat**, custom "night race" theme, multi-turn history.
-- 🧩 **Modular `src/` package**, single config source of truth, 20 tests,
+- 🧩 **Modular `src/` package**, single config source of truth, 47 tests,
   phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture
@@ -91,7 +91,7 @@ One principle, two supply lines into the prompt:
 
 ```
                        KNOWLEDGE (retrieval)                 BEHAVIOR (weights)
-  Kaggle 1950-2024 ─► kb_builder ─► 2,270 fact docs      counterfactual dataset
+  Kaggle 1950-2024 ─► kb_builder ─► 2,381 fact docs      counterfactual dataset
   OpenF1 (live grid) ──────────────► hybrid index ─┐      (signatures+grounding
   curated rules ───────────────────► (dense+BM25   │       +persona, 0 facts)
                                       +RRF+routing)│              │
@@ -217,18 +217,21 @@ header (graceful fallback). Architecture in [`docs/phase6_notes.md`](docs/phase6
 
 ## Screenshots
 
-> _Placeholder — add a screenshot of the running Gradio app here._
->
-> ```
-> [ 🏎️ PitGPT — F1 Enthusiast ]
-> You:   I'm new to F1, where do I start?
-> PitGPT: Welcome — this is one of my favourite things to talk about! There's no
->         wrong way to jump in; pick a driver or team that hooks you and go from there…
-> ```
+**Architecture**
+
+![Architecture](docs/showcase/architecture.png)
+
+**Benchmark journey** (23% → 99% on the same 90-case benchmark)
+
+![Benchmark journey](docs/showcase/benchmark_journey.png)
+
+**Chat recall: "who is my favourite driver?"** answered from the user's own statements
+
+![Chat recall](docs/showcase/chat_vettel_memory.png)
 
 ## The retrieval stack
 
-**Corpus** (`rag/kb_builder.py`): 2,270 **atomic fact documents** — one
+**Corpus** (`rag/kb_builder.py`): 2,381 **atomic fact documents** — one
 self-contained fact each (858 driver careers, ~1,125 Grand Prix winners, every
 Drivers' and Constructors' champion, 77 circuits, curated rules, the OpenF1
 live grid). Atomic docs eliminate chunking entirely and keep prompt injection

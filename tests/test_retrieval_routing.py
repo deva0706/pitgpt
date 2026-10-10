@@ -205,6 +205,20 @@ def test_guard_still_fires_on_true_absence(fake_retriever):
     assert "2020" in facts[0]["text"] and "Monaco" in facts[0]["text"]
 
 
+def test_gp_abbreviation_is_extracted_like_grand_prix():
+    # Live-reproduced 2026-10-10: "2007 Singapore GP" skipped the guard.
+    assert R._extract_gp("Who won the 2007 Singapore GP?") == "Singapore Grand Prix"
+    assert R._extract_gp("Who won the 2007 Singapore Grand Prix?") == "Singapore Grand Prix"
+    assert R._extract_gp("what makes a gp special?") is None
+
+
+def test_guard_fires_for_gp_abbreviation(fake_retriever):
+    fake_retriever(CORPUS, [RACE_2021_BH])
+    facts = R.retrieve_facts("Who won the 2020 Monaco GP?")
+    assert len(facts) == 1 and facts[0]["source"] == "absence_guard"
+    assert "2020" in facts[0]["text"] and "Monaco" in facts[0]["text"]
+
+
 # --------------------------------------------------------------------------- #
 # Corpus: race docs carry their circuit (alias bridge)
 # --------------------------------------------------------------------------- #

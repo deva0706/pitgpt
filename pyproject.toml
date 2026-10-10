@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pitgpt"
 version = "0.1.0"
-description = "PitGPT — an offline Formula 1 race engineer built on SmolLM2-360M-Instruct + QLoRA."
+description = "PitGPT — an offline Formula 1 race engineer built on Gemma-3-1B-it + QLoRA."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "PitGPT" }]
-keywords = ["llm", "qlora", "peft", "formula1", "smollm2", "fine-tuning"]
+keywords = ["llm", "qlora", "peft", "formula1", "gemma", "fine-tuning"]
 
 # Runtime dependencies are pinned loosely in requirements.txt so that the CUDA
 # build of torch can be installed first. We intentionally leave them out of the

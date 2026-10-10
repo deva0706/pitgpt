@@ -22,7 +22,6 @@ import logging
 import re
 import urllib.request
 from collections import defaultdict
-from pathlib import Path
 
 from pitgpt.config import settings
 

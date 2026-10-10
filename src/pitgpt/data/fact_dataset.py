@@ -30,14 +30,18 @@ and the long tail stays shaky — that's benchmarked after training, not hidden.
 from __future__ import annotations
 
 import csv
+import os
 import random
 from collections import defaultdict
 from pathlib import Path
 
-KAGGLE_DIR = Path(
-    "C:/Users/devya/.cache/kagglehub/datasets/rohanrao/"
-    "formula-1-world-championship-1950-2020/versions/24"
-)
+# Default is kagglehub's cache under the current user's home folder; set
+# PITGPT_KAGGLE_DIR to point at an unpacked copy of the dataset elsewhere.
+KAGGLE_DIR = Path(os.environ.get(
+    "PITGPT_KAGGLE_DIR",
+    Path.home() / ".cache" / "kagglehub" / "datasets" / "rohanrao"
+    / "formula-1-world-championship-1950-2020" / "versions" / "24",
+))
 
 
 def _read(name: str) -> list[dict]:

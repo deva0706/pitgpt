@@ -4,7 +4,7 @@ engine.py — the chat/generation layer that sits on top of a loaded model.
 Responsibilities
 ----------------
 * Turn a list of chat messages into model-ready input ids using the tokenizer's
-  built-in chat template (SmolLM2 uses a ChatML-style template).
+  built-in chat template (the template is model-specific; Gemma's is used by default).
 * Run ``model.generate()`` with our configured decoding parameters.
 * Offer a *streaming* variant that yields tokens as they are produced — this is
   what makes the Gradio UI feel responsive.
@@ -35,7 +35,7 @@ Message = dict[str, str]
 def _content_to_text(content) -> str:
     """Coerce a message ``content`` to a plain string.
 
-    SmolLM2's chat template concatenates ``content`` as a string, but some UIs
+    The chat template concatenates ``content`` as a string, but some UIs
     (notably Gradio 6's chatbot) store content as a *list* of content-parts, e.g.
     ``[{"type": "text", "text": "…"}]``. Passing that straight to the template
     raises ``TypeError: can only concatenate str (not "list") to str``. We flatten

@@ -1,7 +1,7 @@
 """
 model_loader.py — turn a model id (+ optional adapter) into a ready tokenizer/model pair.
 
-This is the one place in the codebase that knows *how* to instantiate SmolLM2.
+This is the one place in the codebase that knows *how* to instantiate the base model.
 Both the baseline script, the evaluation harness, and the Gradio app call into
 here so that quantization and adapter-loading behave identically everywhere.
 
@@ -29,7 +29,7 @@ _DTYPES = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torc
 
 
 def build_quantization_config() -> BitsAndBytesConfig:
-    """Construct the 4-bit NF4 config that makes SmolLM2 fit in ~1 GB of VRAM.
+    """Construct the 4-bit NF4 config that makes the base model fit in ~1 GB of VRAM.
 
     See docs/phase3_notes.md for the theory. In one line: store frozen weights
     as 4-bit NormalFloat, but upcast to fp16 for the actual matrix multiplies.
@@ -64,7 +64,7 @@ def load_model(
     quantized: bool = True,
     adapter_dir: str | Path | None = None,
 ) -> AutoModelForCausalLM:
-    """Load SmolLM2, optionally 4-bit-quantized and optionally with a LoRA adapter.
+    """Load the base model, optionally 4-bit-quantized and optionally with a LoRA adapter.
 
     Parameters
     ----------

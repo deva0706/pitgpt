@@ -1,5 +1,5 @@
 """
-baseline.py — Phase 1 deliverable: run the *un-tuned* SmolLM2 on the eval set.
+baseline.py — Phase 1 deliverable: run the *un-tuned* base model on the eval set.
 
 Why capture a baseline at all?
     Fine-tuning is only meaningful relative to a starting point. By recording
@@ -46,7 +46,7 @@ def run_baseline() -> str:
     lines: list[str] = [
         "# PitGPT — Baseline Outputs (Phase 1)",
         "",
-        "Raw **SmolLM2-360M-Instruct** with the PitGPT race-engineer system prompt,",
+        "Raw **Gemma-3-1B-it** with the PitGPT race-engineer system prompt,",
         "**before any fine-tuning**. This is the reference point for the Phase 5",
         "before/after evaluation.",
         "",
