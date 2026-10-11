@@ -1,5 +1,49 @@
 # PitGPT — Autonomous Build STATUS
 
+> **2026-10-11 update — revived after three months; multi-turn chat fixed.**
+> The Hugging Face cache had been wiped, so the gated base model was gone and
+> the app could not start. The model is back in the standard cache and both
+> loaders are cache-first (`model_loader._cached_first`, and the MiniLM
+> embedder in `rag/index.py`): once downloaded, nothing needs a token or the
+> Hub. The audit that followed replayed WHOLE CHATS through the model instead
+> of single questions, which is where the bugs were:
+> - **Follow-ups were answered about the wrong entity.** Names recalled from
+>   earlier answers were glued onto the search text. After a title answer,
+>   "What teams did he race for?" carded Lewis Hamilton as a "Brazilian
+>   driver… Died 1994"; the benchmark's own Vettel question, asked third in a
+>   chat, came back as "2013 driver season"; a stated favourite hijacked every
+>   later "he". References are now resolved into the question itself — "he" →
+>   the driver just discussed, "that race" / "who won it" → that Grand Prix,
+>   "And in 2007?" → the previous question for that year — for retrieval AND
+>   for the model, which answers grounded turns without history. Generic
+>   "they" / "it" are left alone.
+> - **"GP" skipped the never-held guard** ("2007 Singapore GP" got the 2008
+>   and 2024 results as context), and **the guard now answers for itself**
+>   (`templates.absence_reply`): v4 predates it and turned its absence fact
+>   into "not in my notes… What I've got here covers the 2007 Singapore Grand
+>   Prix, nothing else".
+> - **Relevance gate**: lexical overlap needs semantic support (or strong
+>   similarity alone). Three docs at cosine 0.09 were being blended into the
+>   DRS explainer on BM25 token coincidences.
+> - **Chat vs. facts gate**: "I'm new to F1, where do I start?" and "Who is
+>   your favourite driver?" go to the persona instead of being answered from
+>   Liam Lawson's / Jim Clark's bio; "I also love the Monaco GP" counts as a
+>   statement and reaches the radio log.
+> - **Year-less title questions** about a driver with a curated titles
+>   summary get that one fact ("How many titles did Lewis Hamilton win?" was
+>   "the 2017, 2019 and 2017 World Champion").
+>
+> No retraining — shipped adapter is still v4. 67 tests (was 45). Re-measured
+> on the final code (`*_oct11` reports, run with `HF_HUB_OFFLINE=1`):
+> retrieval 100% hit / 99% clean, facts **99%**, grounding **73%**; every
+> answer in both model benchmarks is identical to the run before these
+> changes. Known limits, unchanged: free-chat replies ramble, yes/no and
+> comparison questions are outside the trained formats, and multi-turn
+> behaviour is covered by unit tests and replayed chats, not yet by a scored
+> benchmark. Also corrected: the shipped adapter was trained on **2,445**
+> rows (the README's 2,144 belonged to v1); `final_dataset.py` at HEAD builds
+> the 2,628-row v5 set, so rebuilding from HEAD does not reproduce v4.
+
 > **2026-07-07 update — retrieval-routing overhaul shipped; retrain rolled back.**
 > Live-reported failures ("Tell me about the 2021 Abu Dhabi GP" → falsely
 > declared never-held; "Yas Marina GP" aliases → false absences or wrong-race

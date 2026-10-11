@@ -16,8 +16,8 @@ fighting it.
 moved knowledge to retrieval, retrained the adapter for *behavior only*
 (persona + grounding + formats, with counterfactual data that makes
 memorization impossible), then iterated retrieval precision and data realism
-against the benchmark — and the same 90-case benchmark went **23% → 97%
-strict accuracy, with confident-wrong answers cut from 77% → 2%**.
+against the benchmark — and the same 90-case benchmark went **23% → 99%
+strict accuracy, with confident-wrong answers cut from 77% → 1%**.
 
 ---
 
@@ -41,19 +41,23 @@ Small language models are excellent at *behavior* and terrible at being
 | Facts fine-tuned into weights (closed-book) | 23% | 30% | 77% |
 | + hybrid RAG, behavior-only adapter | 61% | 93% | 32% |
 | + entity pinning (context precision) | 78% | 100% | — |
-| **+ format adapter, realistic-context training, greedy decoding** | **97%** | **100%** | **2%** |
+| + format adapter, realistic-context training, greedy decoding | 97% | 100% | 2% |
+| **+ query-routing overhaul (same adapter, no retraining)** | **99%** | **100%** | **1%** |
 
 Same base model, same GPU, same benchmark — knowledge moved to retrieval, then
 retrieval precision and training-data realism were iterated against the
 measurement. Behavior-in-weights works: the eight reply formats hold at **98%**
 end-to-end and entity grounding with gold context is 100%. The honest residual:
-"admit when the context doesn't cover it" sits at 20-70% depending on training
-mix (see [Evaluation](#evaluation)) — production exposure is limited because
-entity pinning filters mismatched context before the model sees it.
+"admit when the context doesn't cover it" sits at 30% on the shipped adapter
+(20-70% across training mixes, see [Evaluation](#evaluation)) — production
+exposure is limited because entity pinning filters mismatched context before
+the model sees it.
 
-- **Base model:** google/gemma-3-1b-it (gated — one-time `huggingface-cli login`)
+- **Base model:** google/gemma-3-1b-it (gated — one `huggingface-cli login` to
+  download it; after that it loads from the local cache with no login or network)
 - **Adapter:** ~13 M trainable params (~2%) — persona, grounding, styles; zero facts
-- **Knowledge:** 2,381 atomic fact docs (Kaggle 1950-2024 + curated rules + OpenF1)
+- **Knowledge:** 2,381 atomic fact docs (Kaggle 1950-2024 + Jolpica 2024-26 +
+  curated rules + OpenF1)
 - **Retrieval:** MiniLM dense + BM25, reciprocal-rank fusion, query-aware routing
 - **Hardware:** RTX 3050 Laptop, 4 GB VRAM, Windows — batch 1×16, seq 384,
   gradient checkpointing, paged 8-bit AdamW, bf16
@@ -72,17 +76,23 @@ resource: each phase ships teaching notes and Q&A.
   fused by reciprocal rank, with query-aware source routing (driver questions →
   bio docs, race questions → result docs) that fixed a measured
   popular-entity ranking failure.
-- 🎨 **Six per-category reply signatures** learned in the adapter — 🏎️
-  driver-cards, *"Lights out, {year} {GP}:"* recaps, *"Welcome to {circuit}"*,
-  *"Season {year} belonged to…"*, *"Constructors' crown…"*, *"Let's talk
-  racecraft:"* — plus a warm enthusiast persona for opinion questions.
+- 🎨 **Eight per-category reply formats** learned in the adapter (one source
+  of truth, `data/templates.py`) — *"{Winner} got the chequered flag at the
+  {year} {GP}!"*, *"And that's the title! …"*, *"Checking the telemetry on
+  {Driver} —"*, *"The tally board reads {N} —"*, *"Lights out and here we go
+  on {circuit}!"*, *"Constructors' crown, {year}: …"*, *"Let's talk
+  racecraft:"*, and the *"Box, box —"* decline — plus a warm enthusiast
+  persona for opinion questions.
 - 🧠 **Behavior-only QLoRA** (~13 M params) trained on counterfactually
   randomized data, so grounding on retrieved context is the only strategy the
   optimizer can learn — memorization is impossible by construction.
-- 📏 **Two benchmark harnesses** (grounding + factual A/B), resumable JSONL
-  runs, markdown scorecards — every claim in this README has a number behind it.
-- 💬 **Streaming Gradio chat**, custom "night race" theme, multi-turn history.
-- 🧩 **Modular `src/` package**, single config source of truth, 50 tests,
+- 📏 **Three benchmark harnesses** (retrieval-only, grounding, factual A/B),
+  resumable JSONL runs, markdown scorecards — every claim in this README has a
+  number behind it.
+- 💬 **Streaming Gradio chat** with chat memory: follow-ups are resolved before
+  retrieval (*"What teams did he race for?"*, *"Who won it in 2009?"*, *"And in
+  2007?"*), and a deterministic "radio log" quotes back what you told it.
+- 🧩 **Modular `src/` package**, single config source of truth, 67 tests,
   phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture
@@ -104,7 +114,7 @@ One principle, two supply lines into the prompt:
 
 ```mermaid
 flowchart LR
-    KGL[Kaggle 1950-2024] --> KB[kb_builder: 2270 atomic docs]
+    KGL[Kaggle 1950-2024] --> KB[kb_builder: 2381 atomic docs]
     OF1[OpenF1 live] --> KB
     CUR[curated rules] --> KB
     KB --> IDX[hybrid index: dense+BM25+RRF]
@@ -124,8 +134,9 @@ flowchart LR
 PitGPT/
 ├── src/pitgpt/
 │   ├── config/         # settings.py — single source of truth (paths, model, LoRA, training)
-│   ├── data/           # knowledge_base, build_dataset, validate_dataset
-│   ├── inference/      # model_loader, engine (streaming), baseline capture
+│   ├── data/           # final_dataset + templates (behavior set), persona KB, validation
+│   ├── rag/            # kb_builder (corpus), index (dense+BM25), retriever (routing, pins, guard)
+│   ├── inference/      # model_loader, engine (streaming, chat recall), baseline capture
 │   ├── training/       # data_module, train (QLoRA SFTTrainer)
 │   ├── evaluation/     # prompts (20), compare (base vs tuned), reports
 │   └── app/            # model_service, theme, gradio_app
@@ -161,8 +172,13 @@ python scripts/check_gpu.py
 
 ## The training data: behavior, not facts
 
-The final training set (`final_dataset.py` + `build_final.py`, 2,144 rows)
-teaches exactly three behaviors — and is engineered so facts *cannot* be learned:
+The training set (`final_dataset.py` + `build_final.py`) teaches exactly three
+behaviors — and is engineered so facts *cannot* be learned. The shipped adapter
+was trained on 2,445 rows (the builder as of commit `4387f2a`); the builder at
+HEAD produces 2,628, adding absence-recitation, venue-phrasing and prose-card
+rows for the next adapter — the one retrain on that set regressed and was
+rolled back (see [`docs/STATUS.md`](docs/STATUS.md)), so rebuilding from HEAD
+does not reproduce the shipped weights.
 
 1. **Grounding** — every factual row is **counterfactually randomized**: drivers
    paired with wrong teams, races with wrong winners, always matching the
@@ -202,7 +218,7 @@ python scripts/train.py      # QLoRA fine-tune → models/adapters/pitgpt-lora
 Sized for 4 GB: 4-bit NF4 base, bf16 compute (Ampere-native, no grad scaler),
 `max_length=384`, **batch 1 × 16 accumulation** (effective 16), 2 epochs. Gemma-1B
 at higher batch/seq thrashed the paged optimizer near 4 GB, so batch 1 keeps ~1 GB
-headroom. The trainer logs VRAM and trainable params, checkpoints every 25 steps,
+headroom. The trainer logs VRAM and trainable params, checkpoints every 10 steps,
 and supports `PITGPT_RESUME=auto`. Details in [`docs/phase4_notes.md`](docs/phase4_notes.md).
 
 ## Running the app
@@ -212,8 +228,11 @@ python scripts/chat.py       # launches the Gradio UI at http://127.0.0.1:7860
 ```
 
 Streaming replies, multi-turn memory, example "quick calls", and a reset button.
-If the adapter is missing, the app runs on the base model and says so in the
-header (graceful fallback). Architecture in [`docs/phase6_notes.md`](docs/phase6_notes.md).
+The model loads on the first message, so the first reply takes ~20 s. If the
+adapter is missing, the app runs on the base model and says so in the header
+(graceful fallback). Once the base model is in the Hugging Face cache it is
+loaded straight from disk — no login, and the benchmarks run with
+`HF_HUB_OFFLINE=1`. Architecture in [`docs/phase6_notes.md`](docs/phase6_notes.md).
 
 ## Screenshots
 
@@ -240,13 +259,27 @@ compact (4 facts ≈ 120 tokens).
 **Hybrid ranking** (`rag/index.py`): MiniLM dense embeddings catch meaning;
 BM25 catches exact tokens — "2016" and "2021" embed almost identically, which
 is precisely how dense-only retrieval confused champion years. Both rankings
-fuse via **reciprocal rank fusion** (K=60) with a relevance gate.
+fuse via **reciprocal rank fusion** (K=60) with a relevance gate: a doc needs
+lexical overlap *and* semantic support, or strong similarity on its own —
+"at least one ranker" let three docs at cosine 0.09 into a DRS explainer on
+token coincidences.
 
 **Query routing** (`rag/retriever.py`): a measured failure — popular drivers
 have ~90 race-winner docs that flooded ranking and buried their bio doc (the
 benchmark's popularity gradient *inverted*: Schumacher scored worse than
 backmarkers). Routing question types to doc families (driver → bios, "who won
 the {year} GP" → race docs) fixed it: popular-tier accuracy 5% → 30%.
+
+**Follow-up questions** (`inference/engine.py`): the adapter is trained
+single-turn, so a grounded turn is answered without chat history. Whatever the
+question leaves to the chat is resolved first and written into the question
+itself — *"What teams did he race for?"* → *"…did Nigel Mansell race for?"*,
+*"Who won it in 2009?"* → *"Who won the Singapore Grand Prix in 2009?"*,
+*"And in 2007?"* → the previous question for 2007 — so retrieval and the model
+both get a complete question. This came from replaying whole chats through the
+model: with the benchmark at 99%, a title answer followed by *"What teams did
+he race for?"* was carding the wrong driver. Generic *"they"* and *"it"* are
+left alone.
 
 ```bash
 python scripts/build_rag.py               # rebuild corpus + hybrid index
@@ -262,19 +295,22 @@ historical tables), one flag between architectures:
 
 | Metric | Facts-in-weights | **Final shipped system** |
 |---|---|---|
-| Overall (strict, word-boundary) | 23% | **97%** |
+| Overall (strict, word-boundary) | 23% | **99%** |
 | Champions by year | 30% | **100%** |
-| Driver team histories | 3% | **93%** |
+| Driver team histories | 3% | **97%** |
 | GP winners | 45% | **100%** |
-| Career win counts | 20% | **90%** |
-| Confident-wrong answers | 77% | **2%** |
+| Career win counts | 20% | **100%** |
+| Confident-wrong answers | 77% | **1%** |
 | Reply-format adherence | — | **98%** |
 
 The final system = hybrid RAG + entity pinning (query names a driver/year/GP →
 only matching docs reach the prompt) + a format adapter trained on
-*realistic-shaped* counterfactual contexts + greedy decoding. Each of those
-four levers was added because a benchmark run isolated its failure mode; the
-per-iteration reports (`v2*`, `v3`, `v4`) are all committed.
+*realistic-shaped* counterfactual contexts + greedy decoding + query routing
+that sends each question type to its doc family. Each of those five levers was
+added because a benchmark run isolated its failure mode; the per-iteration
+reports (`v2*`, `v3`, `v4`, `diag_postfix`) are all committed, and the
+`*_oct11` reports re-measure the shipped system end to end (run with
+`HF_HUB_OFFLINE=1`; all 90 answers identical to the previous run).
 
 Scoring uses word-boundary matching (a plain-substring scorer flagged phantom
 hallucinations — the Kaggle constructor table contains a team named "RE", which
@@ -282,9 +318,10 @@ substring-matches inside "raced"). Team-name aliases ("Lotus F1" vs "Team
 Lotus") still make strict scoring conservative on the RAG side.
 
 **Grounding benchmark** (105 cases; counterfactual pairings, so a pass *proves*
-context-reading), on the shipped adapter: 72% overall — entity grounding 100%,
-persona 100%, descriptive 90%, but missing-context honesty at 20% and synthesis
-at 27%. Three training iterations exposed a **decline/answer seesaw**: mixes
+context-reading), on the shipped adapter: 73% overall
+(`grounding_report_oct11.md`) — entity grounding 100%, persona 100%,
+descriptive 75%, but missing-context honesty at 30% and synthesis at 40%.
+Three training iterations exposed a **decline/answer seesaw**: mixes
 that maximize honest declines (70% in iteration 2) cost facts accuracy, and the
 realistic-context mix that won facts+formats traded declines back down. The
 force-fed mismatched contexts in this benchmark are largely filtered by entity
@@ -313,17 +350,25 @@ regressed elsewhere and was rolled back. Every report is committed under
 | retrieval-only harness | 100% recall, 7% clean contexts | the gap is precision, not search |
 | entity pinning + enriched race docs | 78% strict, zero training | clean context first, then train |
 | format adapter (clean contexts) | 97% facts but formats keyed to context words | train on realistic doc shapes |
-| realistic-context training + greedy | **97% strict, 2% confident-wrong, 98% formats** | the shipped system |
+| realistic-context training + greedy | 97% strict, 2% confident-wrong, 98% formats | ship the adapter (v4) |
+| query-routing overhaul, same adapter | **99% strict, 1% confident-wrong** | the shipped system |
+| retrain on absence / venue / prose rows (v5) | 96%, GP names mangled on a common phrasing | rolled back; the guard states the absence itself |
+| whole chats replayed through the model | follow-ups answered about the wrong driver, invisible to a single-question benchmark | resolve references into the question before retrieval |
 
 ## Future work
 
-- **Break the decline/answer seesaw** (honest declines 20-70% across training
-  mixes): scale decline rows *with* realistic contexts and weight them
-  relative to the answer rows; it's the one gate still under 90%.
-- Synthesis/comparison answers under greedy decoding (27%) — likely needs
-  chain-style comparison rows rather than more templates.
+- **Break the decline/answer seesaw** (honest declines 30% shipped, 20-70%
+  across training mixes): scale decline rows *with* realistic contexts and
+  weight them relative to the answer rows; it's the one gate still under 90%.
+- Synthesis/comparison answers under greedy decoding (40%) — likely needs
+  chain-style comparison rows rather than more templates. Yes/no questions
+  are outside the trained formats too.
+- **A scored multi-turn benchmark.** Follow-up resolution is covered by unit
+  tests and replayed chats, not yet by a number.
+- The next adapter: retrain on the HEAD dataset with real GP↔circuit pairs
+  (the v5 lesson), so the model can recite the absence fact itself.
 - Alias normalization in scoring and corpus (Lotus/Team Lotus/Lotus F1).
-- Multi-turn grounded dialogues; GGUF export for CPU inference.
+- GGUF export for CPU inference.
 
 ## License
 

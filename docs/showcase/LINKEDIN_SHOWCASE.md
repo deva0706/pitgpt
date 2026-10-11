@@ -59,7 +59,7 @@ of invents, and speaks in one voice. The weights carry zero facts.
 | `chat_trap_question.png` | Live app declining the 2007 Singapore GP — a race that never happened |
 | `chat_vettel_memory.png` | Career telemetry card, then "when did *he* win…" resolved across turns |
 | `category_scorecard.png` | Per-category tiles: champions 100%, GP winners 100%, win counts 100%, team histories 97%, formats 98% |
-| `training_terminal.png` | The real fine-tune running: 13M trainable params (1.97%), ~2 GB VRAM, 2,628 examples |
+| `training_terminal.png` | A real fine-tune run on the laptop (the 2,628-example retrain): 13M trainable params (1.97%), ~2 GB VRAM |
 
 ## Demo script — the questions that show it off
 
@@ -86,7 +86,10 @@ Screenshot these in order. Each hits a measured strength:
 7. **Memory flow** — *"My favourite driver is Max Verstappen, ok?"* → a few
    fact questions → *"Who is my favorite driver?"* → *"Checking the radio
    log — your favourite driver on record is Max Verstappen. Checking the
-   telemetry on…"* Statement recall survives any chat length.
+   telemetry on…"* Statement recall survives any chat length. Follow-ups
+   work in the same chat too: after a title answer, *"What teams did he race
+   for?"* cards that driver; after question 2, *"Who won it in 2009?"* then
+   *"And in 2007?"* ends on the trap answer.
 8. **"Explain DRS like I'm five"** — *"Let's talk racecraft…"* rules explainer.
 9. **"Senna or Prost — who was better?"** — opinion mode: the enthusiast
    persona, no fixed template.
@@ -155,7 +158,7 @@ mid-run).
 **Honest limitations** (also in the README): recitation can shuffle names when
 a race is asked by its circuit name and the winner wasn't on pole; multi-fact
 comparisons ("who won more titles?") are the weakest category; the synthetic
-decline benchmark sits at 72% — improving one of these tends to trade against
+decline benchmark sits at 73% — improving one of these tends to trade against
 the others at 1B scale, which is itself a finding.
 
 ## Post angles that land
