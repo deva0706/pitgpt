@@ -43,7 +43,7 @@ def build_quantization_config() -> BitsAndBytesConfig:
     )
 
 
-def _cached_first(loader, model_id: str, **kwargs):
+def _cached_first(loader, model_id: str, offline: dict | None = None, **kwargs):
     """Load from files already on disk; ask the Hub only when they aren't there.
 
     A plain ``from_pretrained`` checks every file with the Hub before using its
@@ -52,9 +52,12 @@ def _cached_first(loader, model_id: str, **kwargs):
     optional ``chat_template.jinja`` probe — and startup needs the network.
     Cache-first keeps the app local once the model has been downloaded; a
     first-time load still falls through to the normal download.
+
+    ``offline`` holds any further arguments the loader needs to stay off the
+    network; they go to the cached attempt only.
     """
     try:
-        return loader(model_id, local_files_only=True, **kwargs)
+        return loader(model_id, local_files_only=True, **(offline or {}), **kwargs)
     except OSError:
         return loader(model_id, **kwargs)
 
@@ -115,7 +118,12 @@ def load_model(
             "Loading %s without quantization (cuda=%s).", model_id, use_cuda
         )
 
-    model = _cached_first(AutoModelForCausalLM.from_pretrained, model_id, **load_kwargs)
+    # transformers also looks beside the base model for an adapter, and does not
+    # pass local_files_only on to that look-up: with every file cached it was
+    # the one request the app still sent on each start (HEAD .../resolve/main/
+    # adapter_config.json, a 401 without a token — measured 2026-10-11).
+    model = _cached_first(AutoModelForCausalLM.from_pretrained, model_id,
+                          offline={"adapter_kwargs": {"local_files_only": True}}, **load_kwargs)
 
     if adapter_dir is not None:
         # Imported lazily so that plain inference does not require peft installed.

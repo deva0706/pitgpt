@@ -80,6 +80,33 @@ def test_loader_prefers_local_files_then_falls_back_to_hub():
     assert calls == [True, False]
 
 
+def test_a_cached_model_load_asks_the_hub_for_nothing(monkeypatch):
+    """With every file on disk the app still sent one request per start
+    (measured 2026-10-11 in its log: HEAD .../gemma-3-1b-it/resolve/main/
+    adapter_config.json, 401). transformers looks for an adapter beside the
+    base model and does not pass ``local_files_only`` on to that look-up; it
+    has to be told separately."""
+    from pitgpt.inference import model_loader as L
+
+    seen = []
+
+    class _Model:
+        def eval(self):
+            return self
+
+    class _Auto:
+        @staticmethod
+        def from_pretrained(model_id, **kwargs):
+            seen.append(kwargs)
+            return _Model()
+
+    monkeypatch.setattr(L, "AutoModelForCausalLM", _Auto)
+    L.load_model("some/model", quantized=False)
+    assert len(seen) == 1
+    assert seen[0]["local_files_only"] is True
+    assert seen[0]["adapter_kwargs"] == {"local_files_only": True}
+
+
 def test_eval_prompt_set_is_twenty():
     from pitgpt.evaluation.prompts import EVAL_PROMPTS
 

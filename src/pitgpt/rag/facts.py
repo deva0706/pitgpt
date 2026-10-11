@@ -70,7 +70,10 @@ CURATED_FACTS: list[str] = [
     "Grid penalties are handed out for exceeding power-unit component allocations or for driving infringements; stewards can also give time penalties (5 or 10 seconds), drive-throughs, or stop-go penalties served in the pits.",
     "The 107% rule requires a driver in Q1 to lap within 107% of the fastest Q1 time to be allowed to race, keeping dangerously slow cars off the grid.",
     "The formation lap is the slow lap before the start on which drivers warm tyres and brakes and take their grid slots; jumping the start earns a penalty, detected by sensors in each grid box.",
-    "A modern Formula 1 power unit is a 1.6-litre V6 turbo-hybrid producing around 1,000 horsepower combined; cars weigh about 800 kg, pull over 5g in fast corners, and top ~350 km/h with DRS open.",
+    "A modern Formula 1 power unit is a 1.6-litre V6 turbo-hybrid producing around 1,000 horsepower combined, in a car that weighs about 800 kg.",
+    # Its own note: as a clause of the power-unit one, "How fast do F1 cars
+    # go?" ranked it fourth, behind race distance and the 107% rule.
+    "Formula 1 cars reach a top speed of around 350 km/h on the longest straights with DRS open, and pull over 5g in fast corners.",
     "An F1 steering wheel is a computer with dozens of controls — brake balance, differential, engine modes, ERS deployment, radio, DRS — and drivers adjust these settings every lap while racing.",
     "F1 race distance is the fewest laps exceeding 305 km (Monaco excepted at ~260 km); races are capped at two hours of green-flag running (three including stoppages).",
     "Blue-riband records in F1: most wins in a season, youngest champion (Sebastian Vettel, 23, in 2010), and most consecutive titles (Michael Schumacher's five, 2000-2004; matched in length by no one since).",

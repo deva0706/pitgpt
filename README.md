@@ -6,7 +6,7 @@
 > architectural decision.
 
 PitGPT answers like an enthusiastic F1 friend, in **eight distinctive
-per-category reply formats**, grounding every fact in a **2,381-document
+per-category reply formats**, grounding every fact in a **2,452-document
 knowledge base** covering 1950 through the current season — because we
 *measured* that a 1B model storing facts in its weights tops out at **23%
 accuracy**, and redesigned the system around that finding instead of
@@ -56,7 +56,7 @@ the model sees it.
 - **Base model:** google/gemma-3-1b-it (gated — one `huggingface-cli login` to
   download it; after that it loads from the local cache with no login or network)
 - **Adapter:** ~13 M trainable params (~2%) — persona, grounding, styles; zero facts
-- **Knowledge:** 2,381 atomic fact docs (Kaggle 1950-2024 + Jolpica 2024-26 +
+- **Knowledge:** 2,452 atomic fact docs (Kaggle 1950-2024 + Jolpica 2024-26 +
   curated rules + OpenF1)
 - **Retrieval:** MiniLM dense + BM25, reciprocal-rank fusion, query-aware routing
 - **Hardware:** RTX 3050 Laptop, 4 GB VRAM, Windows — batch 1×16, seq 384,
@@ -72,7 +72,7 @@ resource: each phase ships teaching notes and Q&A.
 
 ## Features
 
-- 🔍 **Hybrid RAG** over 2,381 atomic fact docs: MiniLM dense + BM25 lexical,
+- 🔍 **Hybrid RAG** over 2,452 atomic fact docs: MiniLM dense + BM25 lexical,
   fused by reciprocal rank, with query-aware source routing (driver questions →
   bio docs, race questions → result docs) that fixed a measured
   popular-entity ranking failure.
@@ -89,10 +89,15 @@ resource: each phase ships teaching notes and Q&A.
 - 📏 **Three benchmark harnesses** (retrieval-only, grounding, factual A/B),
   resumable JSONL runs, markdown scorecards — every claim in this README has a
   number behind it.
+- ✅ **Every grounded answer is checked before it is shown**
+  (`inference/answers.py`): the model's reply is kept when it says what its
+  fact says, and replaced by the fact's own rendering (or the decline) when it
+  does not. Counts and comparisons ("most wins", "Senna or Prost") are computed
+  from the records, not generated.
 - 💬 **Streaming Gradio chat** with chat memory: follow-ups are resolved before
   retrieval (*"What teams did he race for?"*, *"Who won it in 2009?"*, *"And in
   2007?"*), and a deterministic "radio log" quotes back what you told it.
-- 🧩 **Modular `src/` package**, single config source of truth, 67 tests,
+- 🧩 **Modular `src/` package**, single config source of truth, 161 tests,
   phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture
@@ -101,7 +106,7 @@ One principle, two supply lines into the prompt:
 
 ```
                        KNOWLEDGE (retrieval)                 BEHAVIOR (weights)
-  Kaggle 1950-2024 ─► kb_builder ─► 2,381 fact docs      counterfactual dataset
+  Kaggle 1950-2024 ─► kb_builder ─► 2,452 fact docs      counterfactual dataset
   OpenF1 (live grid) ──────────────► hybrid index ─┐      (signatures+grounding
   curated rules ───────────────────► (dense+BM25   │       +persona, 0 facts)
                                       +RRF+routing)│              │
@@ -114,7 +119,7 @@ One principle, two supply lines into the prompt:
 
 ```mermaid
 flowchart LR
-    KGL[Kaggle 1950-2024] --> KB[kb_builder: 2381 atomic docs]
+    KGL[Kaggle 1950-2024] --> KB[kb_builder: 2452 atomic docs]
     OF1[OpenF1 live] --> KB
     CUR[curated rules] --> KB
     KB --> IDX[hybrid index: dense+BM25+RRF]
@@ -231,8 +236,8 @@ Streaming replies, multi-turn memory, example "quick calls", and a reset button.
 The model loads on the first message, so the first reply takes ~20 s. If the
 adapter is missing, the app runs on the base model and says so in the header
 (graceful fallback). Once the base model is in the Hugging Face cache it is
-loaded straight from disk — no login, and the benchmarks run with
-`HF_HUB_OFFLINE=1`. Architecture in [`docs/phase6_notes.md`](docs/phase6_notes.md).
+loaded straight from disk — no login, no request to the Hub or to Gradio's
+servers at start-up, and the benchmarks run with `HF_HUB_OFFLINE=1`. Architecture in [`docs/phase6_notes.md`](docs/phase6_notes.md).
 
 ## Screenshots
 
@@ -250,11 +255,14 @@ loaded straight from disk — no login, and the benchmarks run with
 
 ## The retrieval stack
 
-**Corpus** (`rag/kb_builder.py`): 2,381 **atomic fact documents** — one
-self-contained fact each (858 driver careers, ~1,125 Grand Prix winners, every
+**Corpus** (`rag/kb_builder.py`): 2,452 **atomic fact documents** — one
+self-contained fact each (865 driver careers, 1,165 Grand Prix winners, every
 Drivers' and Constructors' champion, 77 circuits, curated rules, the OpenF1
-live grid). Atomic docs eliminate chunking entirely and keep prompt injection
-compact (4 facts ≈ 120 tokens).
+live grid, and for 2024 onward each team's line-up and — while a season is
+running — the championship standings). Careers and win tallies run through the
+latest season, not just to the end of the historical dump. Atomic docs
+eliminate chunking entirely and keep prompt injection compact.
+`python scripts/build_rag.py --refresh` re-fetches the season in progress.
 
 **Hybrid ranking** (`rag/index.py`): MiniLM dense embeddings catch meaning;
 BM25 catches exact tokens — "2016" and "2021" embed almost identically, which
@@ -280,6 +288,34 @@ both get a complete question. This came from replaying whole chats through the
 model: with the benchmark at 99%, a title answer followed by *"What teams did
 he race for?"* was carding the wrong driver. Generic *"they"* and *"it"* are
 left alone.
+
+**From a question to a shown answer** (added October 2026, after typing
+ordinary questions into the running app instead of benchmark ones). The
+shipped adapter is reliable on exactly one thing: one precise fact, asked in a
+phrasing it was trained on. With the right fact in its prompt, *"Tell me about
+the 2008 Singapore Grand Prix"* named Felipe Massa the winner (it was Alonso;
+the adapter only ever saw *"Who won…"*). So the pipeline now arranges that
+case and verifies the result, in five steps:
+
+1. **Who is it about** (`rag/entities.py`): surnames, typos and nicknames
+   become the corpus's full names — *"who is verstappen"* used to card Jos
+   with Max's wins.
+2. **The one fact** (`retriever._pick`): a question that names its subject
+   gets that document directly — a driver's bio, a team's line-up, a race by
+   Grand Prix, circuit or country, the first or last race of a season, the
+   reigning champion, the standings. Hybrid search runs only for the rest.
+3. **A standalone question** (`inference/dialogue.py`): the whole chat is
+   replayed so *"And in 2010?"* → *"Who was on pole?"* → *"…the constructors
+   that year?"* each resolve against the turn before.
+4. **Ask, then check** (`inference/answers.py`): the model is asked in its
+   trained phrasing; its reply is kept if it says what the fact says, cut at
+   the first sentence that strays, or replaced by the fact's own rendering.
+5. **Computed, not generated** (`rag/stats.py`): record counts and
+   head-to-head comparisons are arithmetic over the records.
+
+The cost is stated plainly under [Evaluation](#evaluation): the check can tell
+that a reply uses only its fact's names and numbers, not that it reads well,
+and some replies are now a note read back rather than the model's wording.
 
 ```bash
 python scripts/build_rag.py               # rebuild corpus + hybrid index
@@ -312,6 +348,35 @@ reports (`v2*`, `v3`, `v4`, `diag_postfix`) are all committed, and the
 `*_oct11` reports re-measure the shipped system end to end (facts and
 retrieval with `HF_HUB_OFFLINE=1`; all 90 answers identical to the previous
 run).
+
+**With the answer check (October 2026).** The numbers above are the model's
+own replies. The app now checks each grounded reply against its fact before
+showing it, so there are two honest numbers for everything
+(`*_oct11_pipeline`, `*_oct11_checked`, `*_oct11_model` reports):
+
+| Benchmark | The model's reply as written | What the app shows |
+|---|---|---|
+| Facts, 90 cases | 99% (89/90) | **100%** |
+| Grounding, 105 cases | 73%, 13.3% hallucinated | **86%, 0% hallucinated** |
+| Retrieval, 90 cases | — | 100% hit, 100% clean, 1.0 docs per question |
+
+On the facts benchmark 76 of 90 replies are shown exactly as the model wrote
+them; the other 14 are the same fact in the same format, rendered by the
+template because the model's version differed (a team name shortened, a
+detail dropped, once a wrong name). On grounding, missing-context honesty goes
+30% → 100% — the model's "he's at Ferrari" about the wrong driver is replaced
+by the decline — and **synthesis goes 40% → 0%**: the check cannot vouch for a
+comparison across facts, so it declines all of them, including the six the
+model had right. In the app, driver-versus-driver comparisons are computed
+instead; the benchmark's other comparison shapes are simply declined.
+
+What the check cannot do: it verifies that a reply uses only its fact's names
+and numbers and mostly its words, not that the reply reads well or answers
+what was asked. A retelling built from a note's own vocabulary can pass and
+still be garbled (measured: *"Points on the board: 25 — 1 point for tenth
+place."*). And the benchmarks above were the questions being tuned for; the
+behaviour on ordinary questions was established by typing about a hundred of
+them into the running app, which is a replayed transcript, not a score.
 
 Scoring uses word-boundary matching (a plain-substring scorer flagged phantom
 hallucinations — the Kaggle constructor table contains a team named "RE", which
@@ -355,6 +420,7 @@ regressed elsewhere and was rolled back. Every report is committed under
 | query-routing overhaul, same adapter | **99% strict, 1% confident-wrong** | the shipped system |
 | retrain on absence / venue / prose rows (v5) | 96%, GP names mangled on a common phrasing | rolled back; the guard states the absence itself |
 | whole chats replayed through the model | follow-ups answered about the wrong driver, invisible to a single-question benchmark | resolve references into the question before retrieval |
+| ordinary questions typed into the running app | benchmark at 99%, yet "Tell me about Hamilton" was improvised and an off-format race question named the wrong winner | pick the one fact, ask in the trained phrasing, check the reply before showing it |
 
 ## Future work
 
@@ -366,6 +432,13 @@ regressed elsewhere and was rolled back. Every report is committed under
   are outside the trained formats too.
 - **A scored multi-turn benchmark.** Follow-up resolution is covered by unit
   tests and replayed chats, not yet by a number.
+- **A benchmark of ordinary phrasing.** The answer check exists because the
+  90-case benchmark only asks in trained shapes; a held-out set of free-form
+  questions would turn "typed a hundred into the app" into a score.
+- **Train the shapes the pipeline now works around**: race questions beyond
+  "who won", standings, and comparisons — so fewer replies need replacing.
+- Small talk is free generation from a 1B model and still rambles; it is capped
+  at 80 tokens and sentences stating figures are dropped, nothing more.
 - The next adapter: retrain on the HEAD dataset with real GP↔circuit pairs
   (the v5 lesson), so the model can recite the absence fact itself.
 - Alias normalization in scoring and corpus (Lotus/Team Lotus/Lotus F1).

@@ -1,5 +1,43 @@
 # PitGPT — Autonomous Build STATUS
 
+> **2026-10-11, later — tested through the browser; the pipeline around the
+> model rebuilt.** Typing ordinary questions into the running app (36 turns,
+> each traced: question → facts → what the model wrote) showed the 99%
+> benchmark only described benchmark-shaped questions:
+> - a keyword list decided whether to search at all — "Tell me about
+>   Hamilton", "Why is Monaco so special?", "Who drives for Ferrari?" were
+>   small talk and were made up;
+> - "who is verstappen" carded Jos with Max's wins; with the right fact in
+>   the prompt, "Tell me about the 2008 Singapore Grand Prix" named Massa the
+>   winner (the adapter only ever saw "Who won…");
+> - "And in 2007?" → "And in 2010?" → "Who was on pole?" lost the thread;
+> - bios stopped at 2024, there were no line-ups, and nothing checked a reply.
+>
+> No retraining. New layers: `rag/records.py` (facts back out of documents),
+> `rag/entities.py` (names → the corpus's), `retriever._pick` (the one fact a
+> question names), `rag/stats.py` (counts, computed), `inference/dialogue.py`
+> (the chat replayed into standalone questions), `inference/answers.py` (ask
+> in the trained phrasing, check the reply, show the fact's own rendering if
+> it fails). Corpus 2,381 → 2,452 docs: careers through the current season,
+> team line-ups, 2025 constructors, standings of the season in progress, race
+> venues on recent races. UI: your message shows at once, bubble widths, New
+> session keeps typed text, no request leaves the machine at start-up.
+>
+> Measured on the final code (`*_oct11_pipeline`, `*_oct11_checked`,
+> `*_oct11_model`): retrieval 100% hit / 100% clean / 1.0 docs; facts **100%
+> shown** (model's own wording 89/90, shown as written 76/90); grounding **86%
+> shown, 0 hallucinations** against 73% / 13.3% for the model alone. 161 tests
+> (was 67). All 36 original turns and about 60 further questions re-checked in
+> the browser.
+>
+> Known limits: the check verifies names, numbers and vocabulary, not sense —
+> a garbled retelling of a note can pass; with the check on, the benchmark's
+> synthesis category is 0% (comparisons it cannot verify are declined);
+> bare fragments like "by how many points?" are not resolved; small talk
+> still rambles; many concept answers are the curated note read back; the
+> pattern rules that pick facts will have misfires of their own; standings
+> are as of the last `build_rag.py --refresh`.
+
 > **2026-10-11 update — revived after three months; multi-turn chat fixed.**
 > The Hugging Face cache had been wiped, so the gated base model was gone and
 > the app could not start. The model is back in the standard cache and both

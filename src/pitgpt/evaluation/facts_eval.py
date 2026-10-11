@@ -34,11 +34,11 @@ from pathlib import Path
 from pitgpt.config import settings
 from pitgpt.data.templates import adheres
 from pitgpt.data.fact_dataset import (
-    _career_facts,
     _load_tables,
     _name,
     _season_final_race_ids,
 )
+from pitgpt.rag.kb_builder import career_facts
 
 logger = logging.getLogger("pitgpt.eval.facts")
 
@@ -68,7 +68,10 @@ def _tiered_drivers(t: dict) -> dict[str, list[str]]:
 def build_cases(seed: int = 11) -> list[FactCase]:
     rng = random.Random(seed)
     t = _load_tables()
-    facts = _career_facts(t)
+    # The same careers the bio docs are built from — the Kaggle tables carried
+    # on through the seasons after the dump — so gold and corpus cannot
+    # disagree about an active driver's teams or win tally.
+    facts = career_facts(t)
     tiers = _tiered_drivers(t)
     all_teams = sorted(set(t["constructors"].values()))
 
@@ -93,15 +96,6 @@ def build_cases(seed: int = 11) -> list[FactCase]:
 
     cases: list[FactCase] = []
 
-    # Vintage guard: Kaggle gold ends at 2024, but a driver's CURRENT team is
-    # a true answer, not a hallucination — drop demonstrably-recent teams
-    # (Jolpica 2024→) from the wrong-pool. Offline-safe (empty without cache).
-    try:
-        from pitgpt.rag.jolpica import recent_teams
-        recent = recent_teams()
-    except Exception:  # noqa: BLE001
-        recent = {}
-
     # --- driver -> teams (10 per tier, held-out phrasing) ---
     for tier, ids in tiers.items():
         picked = 0
@@ -110,13 +104,11 @@ def build_cases(seed: int = 11) -> list[FactCase]:
             if not f or not f["teams"] or picked >= 10:
                 continue
             gold_teams = list(f["teams"])
-            now_teams = recent.get(f["name"], set())
             cases.append(FactCase(
                 category="driver_teams", tier=tier,
                 question=f"What teams did {f['name']} race for over his F1 career?",
                 gold=gold_teams,
-                wrong_pool=[x for x in all_teams
-                            if x not in gold_teams and x not in now_teams],
+                wrong_pool=[x for x in all_teams if x not in gold_teams],
                 signature="driver_card",
             ))
             picked += 1
@@ -222,10 +214,18 @@ def run_eval(tag: str = "facts", limit: int | None = None, use_rag: bool = False
         for idx, case in enumerate(cases):
             if idx in done:
                 continue
-            answer = generate_reply(model, tokenizer, case.question, use_rag=use_rag)
+            trace: dict = {}
+            answer = generate_reply(model, tokenizer, case.question, use_rag=use_rag,
+                                    trace=trace)
             rec = {"idx": idx, "category": case.category, "tier": case.tier,
                    "question": case.question, "gold": case.gold,
                    "answer": answer, **score_case(case, answer)}
+            if trace.get("verdict"):
+                # What the model wrote before the answer check (answers.py),
+                # and how it would have scored had it been shown as it was.
+                own = trace.get("raw") or ""
+                rec.update(model_answer=own, check=trace["verdict"],
+                           model_passed=score_case(case, own)["passed"])
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
             fh.flush()
             if (idx + 1) % 10 == 0:
@@ -257,6 +257,20 @@ def write_report(jsonl_path: Path, tag: str) -> Path:
         sub = by_tier.get(tier, [])
         if sub:
             lines.append(f"| {tier} | {len(sub)} | {sum(r['passed'] for r in sub)/len(sub):.0%} |")
+    checked = [r for r in rows if r.get("check")]
+    if checked:
+        kept = [r for r in checked if r["check"] == "kept"]
+        own = sum(bool(r["model_passed"]) for r in checked)
+        lines += ["", "## The model's own replies", "",
+                  "The table above scores what the app shows. Each reply is checked against "
+                  "its fact first (`inference/answers.py`) and replaced by the fact's own "
+                  "rendering if it does not hold.", "",
+                  f"- model's reply kept as written: {len(kept)}/{len(checked)}",
+                  f"- model's replies scored as written, before the check: "
+                  f"{own}/{len(checked)} ({own/len(checked):.0%})"]
+        for r in [r for r in checked if r["check"] != "kept"][:8]:
+            lines.append(f"- replaced ({r['check']}): {r['question']} → "
+                         f"_{r['model_answer'][:110]}_")
     lines += ["", "## Sample failures", ""]
     for r in [r for r in rows if not r["passed"]][:8]:
         lines.append(f"- **[{r['category']}/{r['tier']}]** {r['question']} → gold "

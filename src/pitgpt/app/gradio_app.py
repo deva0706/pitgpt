@@ -18,11 +18,22 @@ Run:  ``python -m pitgpt.app.gradio_app``   (or the ``pitgpt-chat`` console scri
 from __future__ import annotations
 
 import logging
+import os
+import warnings
 
-import gradio as gr
+# "100% local" has to hold for the web framework too: by default Gradio reports
+# each launch to its own servers and asks them for the latest version. Set
+# before the import, because that is when it is read.
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+# Gradio reads a status constant that Starlette has since renamed, and
+# Starlette says so in the terminal for every message sent (49 times in a
+# 49-turn session, measured 2026-10-11). Nothing in this app can act on it.
+warnings.filterwarnings("ignore", message=r".*HTTP_422_UNPROCESSABLE_ENTITY.*")
 
-from pitgpt.app.model_service import service
-from pitgpt.app.theme import CUSTOM_CSS, EXAMPLE_PROMPTS, build_theme, header_html
+import gradio as gr  # noqa: E402
+
+from pitgpt.app.model_service import service  # noqa: E402
+from pitgpt.app.theme import CUSTOM_CSS, EXAMPLE_PROMPTS, build_theme, header_html  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pitgpt.app")
@@ -33,9 +44,11 @@ Message = dict[str, str]
 def _respond(message: str, history: list[Message]):
     """Stream an enthusiast reply, updating the chat transcript live.
 
-    ``history`` is Gradio 'messages' format. We append the user turn and a blank
-    assistant turn, then progressively fill the assistant content as tokens
-    arrive — each ``yield`` re-renders the chatbot.
+    ``history`` is Gradio 'messages' format. The user's turn is shown at
+    once — the first message of a session waits for the model to load, and
+    until this was done the transcript stayed empty all that time, as if
+    nothing had been sent. The reply is then filled in as it arrives; each
+    ``yield`` re-renders the chatbot.
     """
     message = (message or "").strip()
     if not message:
@@ -43,13 +56,10 @@ def _respond(message: str, history: list[Message]):
         return
 
     prior = list(history)  # turns that existed before this message
-    history = history + [
-        {"role": "user", "content": message},
-        {"role": "assistant", "content": ""},
-    ]
+    history = prior + [{"role": "user", "content": message}]
+    yield history, ""
     for partial in service.stream(message, prior):
-        history[-1]["content"] = partial
-        yield history, ""
+        yield history + [{"role": "assistant", "content": partial}], ""
 
 
 def build_demo() -> gr.Blocks:
@@ -60,7 +70,7 @@ def build_demo() -> gr.Blocks:
     # Show the real base model (its short name) instead of a hard-coded label.
     model_name = settings.model.base_model_id.split("/")[-1]
 
-    with gr.Blocks(title="PitGPT — F1 Enthusiast") as demo:
+    with gr.Blocks(title="PitGPT — F1 Enthusiast", analytics_enabled=False) as demo:
         gr.HTML(header_html(status=status, model=model_name))
 
         # Gradio 6 chatbots use the openai-style messages format by default
@@ -83,7 +93,11 @@ def build_demo() -> gr.Blocks:
             send_btn = gr.Button("Send", variant="primary", scale=1, elem_id="pg-send")
 
         with gr.Row():
-            reset_btn = gr.Button("🏁 New session", scale=1, elem_id="pg-reset")
+            # Clears the transcript in the browser (the model stays loaded). It
+            # used to be a round trip that also emptied the question box, so a
+            # message typed straight after the click could be wiped before it
+            # was sent.
+            gr.ClearButton([chatbot], value="🏁 New session", scale=1, elem_id="pg-reset")
 
         gr.Examples(
             examples=EXAMPLE_PROMPTS, inputs=msg,
@@ -94,9 +108,6 @@ def build_demo() -> gr.Blocks:
         # the chatbot, and the textbox is cleared.
         for trigger in (msg.submit, send_btn.click):
             trigger(_respond, inputs=[msg, chatbot], outputs=[chatbot, msg])
-
-        # Reset simply clears the transcript (model stays loaded).
-        reset_btn.click(lambda: ([], ""), outputs=[chatbot, msg])
 
     return demo
 

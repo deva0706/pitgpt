@@ -3,11 +3,13 @@ engine.py — the chat/generation layer that sits on top of a loaded model.
 
 Responsibilities
 ----------------
+* Decide what a user message needs (``_prepare``): a reply that is already
+  determined, a grounded answer from retrieved facts, or free chat.
 * Turn a list of chat messages into model-ready input ids using the tokenizer's
   built-in chat template (the template is model-specific; Gemma's is used by default).
-* Run ``model.generate()`` with our configured decoding parameters.
-* Offer a *streaming* variant that yields tokens as they are produced — this is
-  what makes the Gradio UI feel responsive.
+* Run ``model.generate()`` with our configured decoding parameters, blocking or
+  streamed, and check a grounded reply against its facts before it is shown
+  (``answers.py``).
 
 Keeping this separate from ``model_loader`` means the UI and the eval harness can
 share exactly one definition of "how PitGPT talks".
@@ -17,42 +19,34 @@ from __future__ import annotations
 
 import logging
 import re
-from threading import Thread
+from dataclasses import dataclass
+from threading import Event, Thread
 from typing import Iterable, Iterator
 
 import torch
-from transformers import TextIteratorStreamer
+from transformers import StoppingCriteria, StoppingCriteriaList, TextIteratorStreamer
 
 from pitgpt.config import settings
-from pitgpt.data.templates import absence_reply
+from pitgpt.data import templates as T
+from pitgpt.inference import answers
+from pitgpt.inference.dialogue import (
+    _real_names,
+    follow,
+    followup,
+    references,
+    resolve,
+    text_of,
+)
 from pitgpt.inference.templating import render_chat
+from pitgpt.rag.records import parse_race
 
 logger = logging.getLogger(__name__)
 
 # A single chat turn: {"role": "system"|"user"|"assistant", "content": str}.
 Message = dict[str, str]
 
-
-def _content_to_text(content) -> str:
-    """Coerce a message ``content`` to a plain string.
-
-    The chat template concatenates ``content`` as a string, but some UIs
-    (notably Gradio 6's chatbot) store content as a *list* of content-parts, e.g.
-    ``[{"type": "text", "text": "…"}]``. Passing that straight to the template
-    raises ``TypeError: can only concatenate str (not "list") to str``. We flatten
-    any such structure back to text so history round-trips safely.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, dict):
-                parts.append(str(part.get("text") or part.get("content") or ""))
-            else:
-                parts.append(str(part))
-        return " ".join(p for p in parts if p).strip()
-    return "" if content is None else str(content)
+# Some UIs (notably Gradio 6's chatbot) store content as a list of parts.
+_content_to_text = text_of
 
 
 def build_messages(
@@ -66,7 +60,7 @@ def build_messages(
     ``context`` (if given) is a block of retrieved facts (RAG) added as a second
     system message so the model can ground its answer without us baking facts into
     the weights. All content is normalised to plain strings so the chat template
-    never sees a list (see :func:`_content_to_text`).
+    never sees a list (see :func:`dialogue.text_of`).
     """
     messages: list[Message] = [{"role": "system", "content": settings.model.system_prompt}]
     for turn in history or []:
@@ -109,6 +103,9 @@ def _encode(tokenizer, messages: list[Message], device) -> dict:
     return {"input_ids": encoded.to(device)}
 
 
+_CHAT_TOKENS = 80
+
+
 def _generation_kwargs(grounded: bool = True) -> dict:
     """Translate our GenerationConfig dataclass into generate() kwargs.
 
@@ -117,93 +114,26 @@ def _generation_kwargs(grounded: bool = True) -> dict:
     (measured live — "in '17 he won it" about Alonso). Short and warm beats
     long and wrong."""
     g = settings.generation
-    return {
-        "max_new_tokens": g.max_new_tokens if grounded else min(g.max_new_tokens, 110),
-        "temperature": g.temperature,
-        "top_p": g.top_p,
-        "top_k": g.top_k,
+    kwargs = {
+        "max_new_tokens": g.max_new_tokens if grounded else min(g.max_new_tokens, _CHAT_TOKENS),
         "repetition_penalty": g.repetition_penalty,
         "do_sample": g.do_sample,
     }
+    if g.do_sample:      # greedy decoding ignores these, and transformers says so every turn
+        kwargs.update(temperature=g.temperature, top_p=g.top_p, top_k=g.top_k)
+    return kwargs
 
 
-def _rag_context(user_prompt: str, use_rag: bool) -> tuple[str, str | None]:
-    """Fetch grounding for the prompt: ``(context, absence)``.
-
-    ``context`` is the fact block to inject (empty if RAG off or no index).
-
-    RE-ENABLED with the full 2,270-doc hybrid index (dense + BM25 + RRF). The
-    earlier 62-doc corpus echoed wrong-entity facts for uncovered names; the
-    complete Kaggle-derived knowledge base closes that coverage hole.
-
-    ``absence`` is set instead when the retriever's never-held guard fired:
-    it is the finished reply, and nothing is generated. The shipped adapter
-    predates the guard and improvises on its one-line fact — measured live
-    as the self-contradictory "that one's not in my notes ... What I've got
-    here covers the 2007 Singapore Grand Prix, nothing else", and once as a
-    confabulated recap. Like the radio log, the guard answers for itself, in
-    the format the next adapter is trained on (``templates.absence_reply``).
-    """
-    if not use_rag:
-        return "", None
-    # Imported lazily so inference works even without the RAG deps/index.
-    from pitgpt.rag.retriever import format_context, retrieve_facts
-
-    facts = retrieve_facts(user_prompt)
-    if len(facts) == 1 and facts[0].get("source") == "absence_guard":
-        return "", absence_reply(facts[0]["year"], facts[0]["gp"])
-    return format_context(facts), None
-
-
-# --- conversation recall: resolving what a question refers back to ---------- #
-# Raw prior turns in the prompt made the single-turn-trained model IMITATE its
-# own formatted answers ("Rosberg is the 2017 champion", "Nico Mansell"), so a
-# grounded turn is answered WITHOUT history. Whatever the question leaves to
-# the chat — "he", "that race", "my favourite driver" — is therefore resolved
-# here and written into the question itself, so retrieval and the model both
-# get a complete, single-turn question.
-#
-# Recalled names used to be glued onto the search text instead. Replaying
-# whole chats through the model (2026-10-11; the single-question benchmark
-# cannot see any of this) showed what that did:
-#   * "What teams did Sebastian Vettel race for over his F1 career?" asked
-#     third in a chat: "his" recalled the earlier answers, "World Champion"
-#     among their names sent the search to the champion docs, and the card
-#     came back as "2013 driver season";
-#   * after a title answer, "What teams did he race for?" carded Lewis
-#     Hamilton as a "Brazilian driver... Died 1994"; after a race recap it
-#     carded a podium finisher; and once a favourite was on file every "he"
-#     meant the favourite;
-#   * "...on the podium in that race?" pulled the venue name into routing
-#     and got a title-fight ramble.
-# Only references with one sensible reading are resolved. "they" and a bare
-# "it" are usually generic ("What tyres do they use in the wet?", "What does
-# it mean...") and are left alone.
+# --- what the user has told us ------------------------------------------------ #
+# The adapter was never trained on chat-recall contexts, so questions about the
+# user's own statements are answered from the transcript, not by the model.
 _RECALL_CUE = re.compile(
     r"\b(he|she|they|him|her|his|hers|their|it|that (race|season|driver|team|year)|"
     r"my favou?rite|i (said|mentioned|told|asked)|earlier|before|again|same)\b", re.I)
 _SELF_CUE = re.compile(r"\b(my favou?rite|i (said|mentioned|told|asked))\b", re.I)
-_PERSON_PRONOUN = re.compile(r"\b(he|she|him|his|hers|her)\b", re.I)
-# "that race", or an "it" in a race-shaped slot ("who won it", "on pole for it").
-_EVENT_CUE = re.compile(
-    r"\bthat (?P<kind>race|season|year)\b"
-    r"|\b(?:won|win|wins|winning|about|at|in|for) (?P<it>it)\b", re.I)
 _MY_FAVOURITE = re.compile(
     r"\bmy favou?rite(?: (?:f1 |formula (?:1|one) )?"
     r"(?:driver|team|circuit|track|race|grand prix|gp|constructor)s?)?\b", re.I)
-# "Which driver crashed his car?" — that pronoun is bound inside the question.
-_BOUND_PRONOUN = re.compile(
-    r"\b(?:which|what|a|an|any|every|each|no) "
-    r"(?:driver|racer|champion|winner|rookie|teammate)s?\b", re.I)
-
-# Capitalized TITLE phrases are descriptions, not names: "my favourite driver
-# is the World Champion" produced "your favourite driver on record is World
-# Champion" live, and the card answered the wrong entity. As a recalled name,
-# "World Champion" also dragged a teams question to the champion docs.
-# Exact-match only — "Monaco Grand Prix" stays a valid name.
-_NON_NAMES = {"world champion", "world championship", "grand prix",
-              "formula one", "formula 1", "drivers championship",
-              "world drivers championship"}
 
 # "What are MY favourite circuits?" asks about the USER, not about F1 — corpus
 # docs are pure noise there, and a retrieved Suzuka doc beat the user's own
@@ -297,10 +227,10 @@ def _favourite_lookup(
     if not (history and m):
         return None
     # Scan the WHOLE history, and only the user's own favourite STATEMENTS.
-    # _chat_recall's window (last 8 turns) lost the statement after five
-    # exchanges, and its fallback names include the bot's answer entities —
-    # measured live as "your favourite driver on record is Autodromo
-    # Nazionale" (a circuit from the previous Monza reply).
+    # A window of recent turns lost the statement after five exchanges, and
+    # names from the bot's answers must never qualify — measured live as
+    # "your favourite driver on record is Autodromo Nazionale" (a circuit
+    # from the previous Monza reply).
     stated: list[str] = []
     for t in history:
         if t.get("role") != "user":
@@ -320,90 +250,39 @@ def _favourite_lookup(
             f"Tell me about {name}.")
 
 
-def _real_names(text: str) -> list[str]:
-    """Proper names in ``text`` (original case), minus title phrases."""
-    from pitgpt.rag.retriever import _PIN_NAME
+def _own_words(user_prompt: str, history: list[Message] | None) -> tuple[str, str] | None:
+    """Resolve a reference to what the user said earlier ("my favourite
+    driver"). None if the question makes none; otherwise ``(block, question)``
+    — the question with the stated name written in, or, when no name can be
+    read from the statements, those statements labeled for the prompt.
 
-    return [n for n in _PIN_NAME.findall(text)
-            if n.lower().replace("'", "") not in _NON_NAMES]
-
-
-def _subject_of(turns: list[tuple[str, str]]) -> str | None:
-    """Who the chat is currently about: the first person or team named in the
-    most recent turn that names one. Walking backwards meets each answer
-    before its question, and every trained reply format leads with its
-    subject; a nameless reply (persona chat, a decline) just defers to the
-    turn before it. Races and venues are events, not a "he"."""
-    for _, text in reversed(turns):
-        for name in _real_names(text[:220]):
-            if not name.lower().endswith(("grand prix", "circuit")):
-                return name
-    return None
-
-
-# "And in 2007?" / "What about 2010?" re-ask the previous question for
-# another year. Left alone they carry a year and nothing else, so retrieval
-# answered with whatever that year's top doc was (measured 2026-10-11: after
-# two Singapore GP questions, "And in 2007?" got a blended 2007 season recap
-# instead of "that race wasn't held"). Strict on purpose: the whole message
-# must be the year follow-up.
-_YEAR_FOLLOWUP = re.compile(
-    r"^\W*(?:and|what about|how about)(?:\s+(?:in|for))?\s+(19[5-9]\d|20[0-2]\d)\W*$", re.I)
-
-
-def _year_followup(user_prompt: str, history: list[Message] | None) -> str | None:
-    """Rewrite a bare year follow-up as the last full question with that
-    year swapped in, or return None if this isn't one / nothing to re-ask."""
-    m = _YEAR_FOLLOWUP.match(user_prompt)
-    if not (m and history):
+    A preference the user STATED beats names that merely appeared in
+    questions or answers ("Who is my favorite driver?" after a Vettel
+    statement pulled names from a Hamilton question too, and the mixed
+    context produced nonsense); the most recent statement that names anyone
+    wins.
+    """
+    if not (history and _SELF_CUE.search(user_prompt)):
         return None
-    from pitgpt.rag.retriever import _PIN_YEAR
-
-    for turn in reversed(history):
-        if turn.get("role") != "user":
-            continue
-        asked = _content_to_text(turn.get("content"))
-        if _YEAR_FOLLOWUP.match(asked):
-            continue                      # itself a follow-up: keep looking back
-        years = set(_PIN_YEAR.findall(asked))
-        if len(years) != 1:
-            return None                   # no year, or ambiguous which to swap
-        return asked.replace(years.pop(), m.group(1))
-    return None
-
-
-def _event_of(exchange: list[tuple[str, str]]) -> tuple[str | None, str | None]:
-    """``(year, Grand Prix)`` the last exchange was about, read from the
-    question first (the user's own framing), then from the answer."""
-    from pitgpt.rag.retriever import _PIN_YEAR
-
-    year = gp = None
-    for want in ("user", "assistant"):
-        for role, text in reversed(exchange):
-            if role != want:
-                continue
-            text = text[:220]
-            if year is None:
-                m = _PIN_YEAR.search(text)
-                year = m.group(0) if m else None
-            if gp is None:
-                gp = next((n for n in _real_names(text)
-                           if n.lower().endswith(" grand prix")), None)
-    return year, gp
-
-
-def _splice(text: str, span: tuple[int, int], new: str) -> str:
-    return text[:span[0]] + new + text[span[1]:]
-
-
-# "her" is a possessive before a noun ("her teams") and an object otherwise
-# ("who beat her in 2019?"); these words after it are never the noun.
-_NOT_A_NOUN = {"in", "at", "to", "for", "on", "and", "or", "when", "while",
-               "then", "there", "that", "this", "too", "as"}
-# A question about one race's result, as opposed to "tell me about the 2008
-# season": only these inherit the race the chat was on (see _chat_recall).
-_RACE_DETAIL = re.compile(
-    r"\b(pole|podium|won|win|winner|second|third|finish(?:ed)?|fastest lap|grid)\b", re.I)
+    # Gradio 6 stores content as a LIST of parts — a plain isinstance(str)
+    # filter here silently dropped every real turn (recall worked in tests,
+    # never in the app). Flatten like build_messages does.
+    said = [_strip_tag_question(_content_to_text(t.get("content"))[:220])
+            for t in history[-8:] if t.get("role") == "user"]
+    # User QUESTIONS stay out: a recalled junk question in context derailed
+    # an unrelated turn live.
+    said = [s for s in said if s and _RECALL_CUE.search(s) and not _QUESTIONISH.search(s)]
+    if _MY_FAVOURITE.search(user_prompt):
+        said = [s for s in said if re.search(r"favou?rite", s, re.I)]
+    stated = next((names for names in map(_real_names, reversed(said)) if names), [])
+    if stated:
+        names = " and ".join(dict.fromkeys(stated))
+        if _MY_FAVOURITE.search(user_prompt):
+            return "", _MY_FAVOURITE.sub(lambda _: names, user_prompt, count=1)
+        return "", f"{user_prompt} ({names})"
+    lines = [f"- Earlier in this chat, the user said: {s}" for s in said[-3:]]
+    return ("From earlier in this conversation (chat recall):\n" + "\n".join(lines)
+            if lines else ""), user_prompt
 
 
 def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, str]:
@@ -414,91 +293,259 @@ def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, 
     teams did Nigel Mansell race for?" — or ``user_prompt`` itself when it has
     none. ``block`` is set only when the user points at their own earlier
     statements and no name can be read from them: those statements, labeled,
-    to go into the prompt.
+    to go into the prompt. (References to the chat's topic: ``dialogue.py``.)
     """
     if not history:
         return "", user_prompt
-    from pitgpt.rag.retriever import (
-        _asks_beyond_the_race, _extract_gp, _PIN_NAME, _PIN_YEAR)
+    return _own_words(user_prompt, history) or ("", references(user_prompt, follow(history)))
 
-    # Gradio 6 stores content as a LIST of parts — a plain isinstance(str)
-    # filter here silently dropped every real turn (recall worked in tests,
-    # never in the app). Flatten like build_messages does.
-    recent = [(t.get("role", "user"), _content_to_text(t.get("content")))
-              for t in history[-8:]]
-    recent = [(role, text) for role, text in recent if text]
 
-    # 1. "my favourite driver" -> the name the user stated. A preference the
-    #    user STATED beats names that merely appeared in questions or answers
-    #    ("Who is my favorite driver?" after a Vettel statement pulled names
-    #    from a Hamilton question too, and the mixed context produced
-    #    nonsense); the most recent statement that names anyone wins.
-    if _SELF_CUE.search(user_prompt):
-        said = [_strip_tag_question(text[:220]) for role, text in recent if role == "user"]
-        # User QUESTIONS stay out: a recalled junk question in context
-        # derailed an unrelated turn live.
-        said = [s for s in said if s and _RECALL_CUE.search(s) and not _QUESTIONISH.search(s)]
-        if _MY_FAVOURITE.search(user_prompt):
-            said = [s for s in said if re.search(r"favou?rite", s, re.I)]
-        stated = next((names for names in map(_real_names, reversed(said)) if names), [])
-        if stated:
-            names = " and ".join(dict.fromkeys(stated))
-            if _MY_FAVOURITE.search(user_prompt):
-                return "", _MY_FAVOURITE.sub(lambda _: names, user_prompt, count=1)
-            return "", f"{user_prompt} ({names})"
-        lines = [f"- Earlier in this chat, the user said: {s}" for s in said[-3:]]
-        return ("From earlier in this conversation (chat recall):\n" + "\n".join(lines)
-                if lines else ""), user_prompt
+def _year_followup(user_prompt: str, history: list[Message] | None) -> str | None:
+    """"And in 2007?" as the last full question with that year swapped in
+    (see :func:`dialogue.followup`, which also swaps drivers, teams and races)."""
+    return followup(user_prompt, follow(history)) if history else None
 
-    # 2. "he" / "his" -> whoever the chat is about. A question that names its
-    #    own driver or race has already bound its pronouns.
-    own_gp = _extract_gp(user_prompt)
-    named = bool(own_gp or _PIN_NAME.search(user_prompt))
-    pronoun = None if named else _PERSON_PRONOUN.search(user_prompt)
-    if pronoun and _BOUND_PRONOUN.search(user_prompt[:pronoun.start()]):
-        pronoun = None
-    subject = _subject_of(recent) if pronoun else None
-    if subject:
-        word = pronoun.group(1).lower()
-        possessive = word in ("his", "hers")
-        if word == "her":
-            noun = re.match(r"\s+([a-z']+)", user_prompt[pronoun.end():], re.I)
-            possessive = bool(noun) and noun.group(1).lower() not in _NOT_A_NOUN
-        return "", _splice(user_prompt, pronoun.span(),
-                           f"{subject}'s" if possessive else subject)
 
-    # 3. The event under discussion. Not when the question asks for titles,
-    #    tallies or team histories: a title question in the same year is not
-    #    about that race, and a GP it never mentioned must not reach the
-    #    absence guard (it used to: a recalled GP was parsed out of the glued
-    #    names, and the race was returned for the title question).
-    if _asks_beyond_the_race(user_prompt):
-        return "", user_prompt
-    year, gp = _event_of(recent[-2:])
-    asked_year = _PIN_YEAR.search(user_prompt)
-    year = None if asked_year else year               # the question's own year wins
-    gp = None if own_gp else gp                       # ...and so does its own race
-    cue = _EVENT_CUE.search(user_prompt)
-    if cue and cue.group("kind") in ("season", "year"):
-        if year:
-            return "", _splice(user_prompt, cue.span(),
-                               f"the {year} season" if cue.group("kind") == "season" else year)
-    elif cue and gp:                                  # "that race" / "who won it"
-        span = cue.span("it") if cue.group("it") else cue.span()
-        return "", _splice(user_prompt, span, " ".join(filter(None, ("the", year, gp))))
-    elif not cue and asked_year and not named and _RACE_DETAIL.search(user_prompt):
-        # "Who was on pole in 2008?" right after the 2008 Singapore GP: the
-        # same year, no race named — it means that race.
-        for _, text in reversed(recent):
-            if asked_year.group(0) in _PIN_YEAR.findall(text[:220]):
-                same = next((n for n in _real_names(text[:220])
-                             if n.lower().endswith(" grand prix")), None)
-                if same:
-                    return "", f"{user_prompt.rstrip(' ?!.')} at the {same}?"
-    return "", user_prompt
+# --- deciding what a message needs --------------------------------------------- #
+# "Who are you and what can you do?" got a paragraph about loving wet-weather
+# qualifying, cut off mid-sentence (measured 2026-10-11). What this app is and
+# does is not for the model to improvise.
+_ABOUT_ME = re.compile(
+    r"\b(?:who|what) (?:are|r) (?:you|u)(?=\W*$|\W+(?:and|then|exactly|really)\b)"
+    r"|\bwhat(?:'s| is) your name\b"
+    r"|\bwhat can you (?:do|help)\b|\bwhat (?:can|should|do) i ask\b"
+    r"|\bare you (?:a |an )?(?:bot|robot|ai|human|real|chatbot|person|llm|model)\b"
+    r"|\bhow do you work\b|^\W*(?:help|what do you (?:do|know))\W*$", re.I)
+_ASKS = re.compile(r"\?|\b(who|what|when|where|which|why|how|explain|tell me)\b", re.I)
+
+
+def _about_me() -> str:
+    from pitgpt.rag.retriever import _get_entities
+
+    entities = _get_entities()
+    years = [int(race.year) for race, _ in entities.races] if entities else []
+    span = f" My notes run from {min(years)} to the {max(years)} season, and when" if years else " When"
+    return ("I'm PitGPT — a Formula 1 race engineer that runs entirely on this machine. "
+            "Ask me who won a Grand Prix or a championship, about a driver's career, "
+            "who drives for a team, a circuit, or how something like DRS works."
+            f"{span} something isn't in them I'll say so rather than guess.")
+
+
+@dataclass
+class _Turn:
+    """What one user message needs."""
+    reply: str | None = None            # already determined: nothing is generated
+    prefix: str = ""                    # said before the generated part
+    plan: answers.Plan | None = None    # a grounded answer: facts, question, check
+    question: str = ""                  # otherwise chat: what the model is asked...
+    history: list[Message] | None = None    # ...with these earlier turns
+    context: str = ""                   # chat-recall lines for the prompt
+
+
+def _prepare(user_prompt, history: list[Message] | None, use_rag: bool = True) -> _Turn:
+    """Work out what ``user_prompt`` needs, given the chat so far.
+
+    The adapter is trained single-turn: with chat history in the prompt, the
+    model imitates its own prior formatted answers instead of reading the
+    fresh context (measured live: "Rosberg is the 2017 champion" after a
+    correct 2016 answer, and the name-blend "Nico Mansell"). Grounded turns
+    therefore answer FRESH from the retrieved facts, on a question that has
+    been made to stand on its own; raw history is kept for persona/chat
+    turns, where continuity is the point.
+    """
+    user_prompt = _content_to_text(user_prompt).strip()
+    # Radio log outranks everything: "what is my favourite corn drink?" is
+    # off-topic AND self-referential — the log must answer it.
+    log_reply = _radio_log_reply(user_prompt, history)
+    if log_reply is not None:
+        return _Turn(reply=log_reply)
+    prefix = ""
+    fav = _favourite_lookup(user_prompt, history)
+    if fav is not None:
+        prefix, rewritten = fav
+        if rewritten is None:
+            return _Turn(reply=prefix)
+        user_prompt = rewritten
+    if not use_rag:
+        return _Turn(prefix=prefix, question=user_prompt, history=history)
+
+    from pitgpt.rag import retriever as R
+
+    if R._get_retriever() is None:      # no index built: plain chat still works
+        return _Turn(prefix=prefix, question=user_prompt, history=_last_exchanges(history))
+    if _ABOUT_ME.search(user_prompt) and not R.has_f1_content(user_prompt):
+        return _Turn(reply=_about_me())
+    # The question as it stands on its own: drivers by full name, follow-ups
+    # and back-references written out — for retrieval AND for the model.
+    question = resolve(user_prompt, follow(history))
+    recall, question = _own_words(question, history) or ("", question)
+    found = R.find(question)
+    if found.intent == "schedule":
+        latest = R._latest_race(R._get_entities())
+        race = parse_race(latest["text"]) if latest else None
+        return _Turn(reply=T.no_live_data_reply(f"{race.year} {race.gp}" if race else ""))
+    if found.intent == "off_topic":
+        return _Turn(reply=T.OFF_TOPIC)
+    if found.facts and found.facts[0].get("source") == "absence_guard":
+        # The guards answer for themselves: the adapter predates them.
+        guard = found.facts[0]
+        return _Turn(reply=prefix + (guard.get("reply")
+                                     or T.absence_reply(guard["year"], guard["gp"])))
+    if found.facts:
+        plan = answers.plan(found.question, found.facts, found.intent)
+        if plan.settled:
+            return _Turn(reply=prefix + plan.reply)
+        return _Turn(prefix=prefix, context=recall, plan=plan)
+    if recall:
+        return _Turn(prefix=prefix, question=question, context=recall)
+    if (not R._is_conversational(found.question)
+            and R.has_f1_content(found.question) and _ASKS.search(found.question)):
+        # A Formula 1 question the notes hold nothing on. Left to free chat it
+        # was answered from the transcript — "Who was on pole?" got a name out
+        # of an earlier reply (measured 2026-10-11).
+        return _Turn(reply=prefix + T.DECLINE)
+    # Small talk: the persona, with the last few turns for continuity. The
+    # whole transcript is no help: after a run of race recaps "Who drives for
+    # Ferrari?" came back as a recap-shaped line about Carlos Sainz.
+    return _Turn(prefix=prefix, question=user_prompt, history=_last_exchanges(history))
+
+
+def _last_exchanges(history: list[Message] | None, n: int = 3) -> list[Message]:
+    """The last ``n`` exchanges of ``history`` that were small talk themselves,
+    as complete pairs (Gemma's chat template rejects turns that do not
+    alternate).
+
+    Grounded exchanges are left out: with them in the prompt the persona
+    imitates their formats. Measured 2026-10-11, straight after a line-up
+    answer and a decline: "What is the capital of France?" -> "Paris, my
+    mistake — I didn't cover that one! What I helped you with is 'Lewis
+    Hamilton and Charles Leclerc', nothing else."
+    """
+    from pitgpt.rag.retriever import _is_conversational, has_f1_content
+
+    pairs: list[Message] = []
+    turns = [t for t in history or [] if _content_to_text(t.get("content"))]
+    for user, bot in zip(turns, turns[1:]):
+        if user.get("role") == "user" and bot.get("role") == "assistant":
+            said = _content_to_text(user.get("content"))
+            if _is_conversational(said) or not has_f1_content(said):
+                pairs += [user, bot]
+    return pairs[-2 * n:]
+
+
+def _grounding(turn: _Turn) -> str:
+    """The context block for a turn: its facts, then any chat-recall lines."""
+    from pitgpt.rag.retriever import format_context
+
+    facts = format_context(turn.plan.facts) if turn.plan else ""
+    return "\n\n".join(part for part in (facts, turn.context) if part)
+
+
+# Ungrounded chat may not state figures: the system prompt asks the model not
+# to cite years or statistics from memory, and it does anyway ("It came back
+# to this three times between 1993 and 1997", about Senna and Prost).
+_SENTENCES = re.compile(r".+?(?:[.!?…]+[\"'”’)\]]*(?=\s|$)|$)", re.S)
+_FIGURE = re.compile(r"\d")
+
+
+def _tidy_chat(text: str, done: bool = True) -> str:
+    """Free-chat text fit to show: whole sentences only, none with a figure.
+
+    The token budget ends chat replies mid-sentence ("...Do you prefer");
+    ``done=False`` (still streaming) holds the sentence in progress back.
+    """
+    sentences = [s.strip() for s in _SENTENCES.findall(text.strip()) if s.strip()]
+    if sentences and not re.search(r"[.!?…][\"'”’)\]]*$", sentences[-1]):
+        if not done or len(sentences) > 1:
+            sentences.pop()              # unfinished
+    kept = [s for s in sentences if not _FIGURE.search(s)]
+    return " ".join(kept or ([] if not done else sentences))
+
+
+# A checked grounded reply is a function of the question put to the model
+# and its facts (decoding is greedy), so the second time round it need not be
+# generated: "Who was on pole?" and "Who finished second?" about one race are
+# the same recap, eleven seconds apart on this laptop.
+_checked: dict[tuple[str, str], tuple[str, str]] = {}
+
+
+def _recall_checked(asked: str, grounding: str) -> tuple[str, str] | None:
+    return None if settings.generation.do_sample else _checked.get((asked, grounding))
+
+
+def _remember_checked(asked: str, grounding: str, reply: str, verdict: str) -> None:
+    if len(_checked) >= 256:
+        _checked.clear()
+    _checked[(asked, grounding)] = (reply, verdict)
+
+
+
+
+class _Halt(StoppingCriteria):
+    """Stop generating once the reply has been decided without it."""
+
+    def __init__(self) -> None:
+        self.event = Event()
+
+    def __call__(self, input_ids, scores, **kwargs):
+        return torch.full((input_ids.shape[0],), self.event.is_set(),
+                          dtype=torch.bool, device=input_ids.device)
 
 
 @torch.inference_mode()
+def _generate(model, tokenizer, messages: list[Message], grounded: bool) -> str:
+    """The model's reply to ``messages``, whole."""
+    inputs = _encode(tokenizer, messages, model.device)
+    prompt_len = inputs["input_ids"].shape[-1]
+    output_ids = model.generate(
+        **inputs,
+        pad_token_id=tokenizer.pad_token_id,
+        **_generation_kwargs(grounded=grounded),
+    )
+    # Only decode the newly generated tokens, not the prompt we fed in.
+    return tokenizer.decode(output_ids[0, prompt_len:], skip_special_tokens=True).strip()
+
+
+def _generate_stream(model, tokenizer, messages: list[Message], grounded: bool) -> Iterator[str]:
+    """The model's reply to ``messages``, piece by piece as it is generated.
+
+    ``generate()`` runs on a background thread and its text is pulled off a
+    ``TextIteratorStreamer`` queue. Closing this iterator early stops the
+    generation and waits for the thread, so the next turn finds the GPU free.
+    """
+    inputs = _encode(tokenizer, messages, model.device)
+    # The timeout only matters if generate() dies: without it the loop below
+    # would wait on a queue nobody is filling.
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True,
+                                    timeout=180)
+    halt = _Halt()
+    thread = Thread(target=model.generate, kwargs={
+        **inputs,
+        "streamer": streamer,
+        "pad_token_id": tokenizer.pad_token_id,
+        "stopping_criteria": StoppingCriteriaList([halt]),
+        **_generation_kwargs(grounded=grounded),
+    })
+    thread.start()
+    drained = False
+    try:
+        for piece in streamer:
+            yield piece
+        drained = True
+    finally:
+        halt.event.set()
+        if not drained:
+            for _ in streamer:
+                pass
+        thread.join()
+
+
+def _facts_of(context: str) -> list[dict]:
+    """The fact lines of a ready-made context block (the eval harness's)."""
+    return [{"text": line[2:].strip()} for line in context.splitlines()
+            if line.startswith("- ")]
+
+
 def generate_reply(
     model,
     tokenizer,
@@ -506,130 +553,126 @@ def generate_reply(
     history: list[Message] | None = None,
     use_rag: bool = True,
     context: str | None = None,
+    check: bool | None = None,
+    trace: dict | None = None,
 ) -> str:
     """Generate a single, complete enthusiast reply (blocking), grounded via RAG.
 
     ``context`` (if given) is used verbatim instead of live retrieval — this is
     how the evaluation harness injects *gold* context to measure generation
-    grounding in isolation from retrieval quality.
+    grounding in isolation from retrieval quality. ``check`` says whether the
+    reply is checked against its facts before it is returned: by default it is
+    for live retrieval and is not for a given ``context``, so the grounding
+    benchmark measures the model alone unless asked otherwise.
+
+    ``trace`` (if given) is filled with what happened: the plan, the question
+    put to the model, its own reply, and the verdict on it.
     """
-    prefix = ""
-    if context is None:
-        # Radio log outranks the conversational gate: "what is my favourite
-        # corn drink?" is off-topic AND self-referential — the log must answer
-        # it, not persona rambling.
-        log_reply = _radio_log_reply(user_prompt, history)
-        if log_reply is not None:
-            return log_reply
-        fav = _favourite_lookup(user_prompt, history)
-        if fav is not None:
-            text, rewritten = fav
-            if rewritten is None:
-                return text
-            prefix, user_prompt = text, rewritten
-        user_prompt = _year_followup(user_prompt, history) or user_prompt
-        from pitgpt.rag.retriever import _is_conversational
-        if _is_conversational(user_prompt):
-            context = ""    # statements/chat: persona path, history intact
-        else:
-            recall, user_prompt = _chat_recall(user_prompt, history)  # see stream_reply
-            context, absence = _rag_context(user_prompt, use_rag)
-            if absence is not None:
-                return prefix + absence
-            if recall:
-                context = f"{context}\n\n{recall}" if context else recall
-    if context:
-        history = None   # grounded turns answer fresh — see stream_reply
-    messages = build_messages(user_prompt, history, context=context)
-    inputs = _encode(tokenizer, messages, model.device)
-    prompt_len = inputs["input_ids"].shape[-1]
+    trace = trace if trace is not None else {}
+    if context is not None:
+        # The harness's question, its context, and nothing of ours in between.
+        turn = _Turn(question=user_prompt, history=None if context else history, context=context)
+        if context and check:
+            turn.plan = answers.plan(user_prompt, _facts_of(context))
+            turn.plan.ask = user_prompt
+        grounding = context
+    else:
+        turn = _prepare(user_prompt, history, use_rag)
+        check = True if check is None else check
+        grounding = _grounding(turn)
+    trace.update(reply=turn.reply, plan=turn.plan)
+    if turn.reply is not None:
+        return turn.reply
 
-    output_ids = model.generate(
-        **inputs,
-        pad_token_id=tokenizer.pad_token_id,
-        **_generation_kwargs(grounded=bool(context)),
-    )
-    # Only decode the newly generated tokens, not the prompt we fed in.
-    new_tokens = output_ids[0, prompt_len:]
-    return prefix + tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+    plan = turn.plan if check else None
+    asked = turn.plan.ask if turn.plan and context is None else turn.question
+    known = _recall_checked(asked, grounding) if plan and context is None else None
+    if known:
+        trace.update(asked=asked, raw=None, verdict=known[1])
+        return turn.prefix + known[0]
+    messages = build_messages(asked, None if grounding else turn.history, context=grounding)
+    raw = _generate(model, tokenizer, messages, grounded=bool(grounding))
+    trace.update(asked=asked, raw=raw)
+    if plan:
+        raw, trace["verdict"] = answers.check(raw, plan)
+        logger.debug("asked %r -> %s", asked, trace["verdict"])
+        if context is None:
+            _remember_checked(asked, grounding, raw, trace["verdict"])
+    elif not grounding and (context is None or check):
+        raw = _tidy_chat(raw)
+    return turn.prefix + raw
 
 
-@torch.inference_mode()
 def stream_reply(
     model,
     tokenizer,
     user_prompt: str,
     history: list[Message] | None = None,
     use_rag: bool = True,
+    trace: dict | None = None,
 ) -> Iterator[str]:
-    """Yield the reply token-by-token as a growing string (for the UI), RAG-grounded.
+    """Yield the reply as a growing string (for the UI), RAG-grounded.
 
-    We run ``generate()`` on a background thread and pull decoded text off a
-    ``TextIteratorStreamer`` queue. Each yield is the *cumulative* text so far,
-    which is exactly what Gradio's chat expects.
+    What is yielded is always fit to stay on screen: free chat a whole
+    sentence at a time; a grounded reply while it is word for word what its
+    fact dictates, or sentence by sentence as each passes the check
+    (``answers.py``). A reply that can no longer pass is not waited for.
     """
-    # The adapter is trained single-turn: with chat history in the prompt, the
-    # model imitates its own prior formatted answers instead of reading the
-    # fresh context (measured live: "Rosberg is the 2017 champion" after a
-    # correct 2016 answer, and the name-blend "Nico Mansell"). Grounded turns
-    # therefore answer FRESH from the retrieved facts; history reaches them
-    # only as labeled chat-recall context (recited, not imitated), and raw
-    # history is kept for persona/chat turns, where continuity is the point.
-    log_reply = _radio_log_reply(user_prompt, history)
-    if log_reply is not None:
-        yield log_reply
+    trace = trace if trace is not None else {}
+    turn = _prepare(user_prompt, history, use_rag)
+    trace.update(reply=turn.reply, plan=turn.plan)
+    if turn.reply is not None:
+        yield turn.reply
         return
-    prefix = ""
-    fav = _favourite_lookup(user_prompt, history)
-    if fav is not None:
-        text, rewritten = fav
-        if rewritten is None:
-            yield text
-            return
-        prefix, user_prompt = text, rewritten
-        yield prefix
-    user_prompt = _year_followup(user_prompt, history) or user_prompt
-    from pitgpt.rag.retriever import _is_conversational
-    if _is_conversational(user_prompt):
-        context = ""        # statements/chat: persona path, history intact
+    if turn.prefix:
+        yield turn.prefix
+
+    grounding = _grounding(turn)
+    plan = turn.plan
+    asked = plan.ask if plan else turn.question
+    known = _recall_checked(asked, grounding) if plan else None
+    if known:
+        trace.update(asked=asked, raw=None, verdict=known[1])
+        yield turn.prefix + known[0]
+        return
+    messages = build_messages(asked, None if grounding else turn.history, context=grounding)
+    pieces = _generate_stream(model, tokenizer, messages, grounded=bool(grounding))
+
+    raw = shown = ""
+    try:
+        for piece in pieces:
+            raw += piece
+            if plan is None:
+                text = raw if grounding else _tidy_chat(raw, done=False)
+            elif answers.hopeless(raw, plan) or answers.declined(raw, plan):
+                # Nothing it goes on to write will be shown — it can no
+                # longer pass the check, or it has declined and that is the
+                # whole reply: stop generating, and show the verdict (below)
+                # now rather than when it would have finished.
+                break
+            elif plan.strict:
+                text = raw                    # word for word the dictated reply so far
+            elif re.search(r"[.!?]", piece):
+                # Worded freely: shown a sentence at a time, each only once
+                # it has passed the check.
+                text = answers.presentable(raw, plan) or shown
+            else:
+                continue
+            if text != shown:
+                shown = text
+                yield turn.prefix + shown
+    finally:
+        pieces.close()                        # stops the generation if it is still going
+
+    trace.update(asked=asked, raw=raw.strip())
+    if plan is not None:
+        final, trace["verdict"] = answers.check(raw, plan)
+        logger.debug("asked %r -> %s", asked, trace["verdict"])
+        _remember_checked(asked, grounding, final, trace["verdict"])
     else:
-        # The question is resolved for the MODEL too, not just for retrieval:
-        # a grounded turn has no history, so a "he" or "that race" in the
-        # question it sees points at nothing. Measured 2026-10-11 with the
-        # right fact in context: "...on the podium in that race?" got a
-        # fabricated recap of another Grand Prix, and "when did he win..."
-        # one title year of four — both right once the question named its
-        # subject.
-        recall, user_prompt = _chat_recall(user_prompt, history)
-        context, absence = _rag_context(user_prompt, use_rag)
-        if absence is not None:
-            yield prefix + absence
-            return
-        if recall:
-            context = f"{context}\n\n{recall}" if context else recall
-    if context:
-        history = None
-    messages = build_messages(user_prompt, history, context=context)
-    inputs = _encode(tokenizer, messages, model.device)
-
-    streamer = TextIteratorStreamer(
-        tokenizer, skip_prompt=True, skip_special_tokens=True
-    )
-    generation_kwargs = {
-        **inputs,
-        "streamer": streamer,
-        "pad_token_id": tokenizer.pad_token_id,
-        **_generation_kwargs(grounded=bool(context)),
-    }
-
-    thread = Thread(target=model.generate, kwargs=generation_kwargs)
-    thread.start()
-
-    partial = ""
-    for token_text in streamer:
-        partial += token_text
-        yield prefix + partial
-    thread.join()
+        final = raw.strip() if grounding else _tidy_chat(raw)
+    if final != shown:
+        yield turn.prefix + final
 
 
 def batch_replies(

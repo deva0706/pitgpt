@@ -48,6 +48,7 @@ class FactRetriever:
         self._embeddings: np.ndarray | None = None
         self._bm25 = None
         self._bm25_corpus: list[list[str]] = []
+        self._rows: dict[str, int] | None = None    # doc text -> its row (lazy)
 
     # ---- model ----
     def _ensure_model(self):
@@ -121,6 +122,20 @@ class FactRetriever:
         """The full document list — the absence guard verifies a miss against
         the whole corpus (not just the routed slice) before declaring it."""
         return self._docs
+
+    def closest(self, query: str, docs: list[dict]) -> dict:
+        """Whichever of ``docs`` (documents of this index) reads most like
+        ``query`` — a choice between known candidates, where the ranking
+        over the whole corpus is not needed."""
+        if self._rows is None:
+            self._rows = {d["text"]: i for i, d in enumerate(self._docs)}
+        q = self._encode([query])[0]
+
+        def similarity(doc: dict) -> float:
+            row = self._rows.get(doc["text"])
+            return float(self._embeddings[row] @ q) if row is not None else -1.0
+
+        return max(docs, key=similarity)
 
     # ---- query ----
     def retrieve(
@@ -198,23 +213,31 @@ def build_index() -> FactRetriever:
     each fact exists exactly once.
     """
     from pitgpt.rag.facts import curated_documents
-    from pitgpt.rag.jolpica import jolpica_documents
+    from pitgpt.rag.jolpica import RECENT_YEARS, jolpica_documents, recent_careers
     from pitgpt.rag.kb_builder import kaggle_documents
     from pitgpt.rag.openf1 import openf1_documents
 
     kaggle = kaggle_documents()
     race_keys = {d["text"].split(" was won by")[0]
                  for d in kaggle if d["source"] == "kaggle_race"}
-    champ_keys = {d["text"].split(",")[0]           # "In {year}"
-                  for d in kaggle if d["source"] == "kaggle_champion"}
+
+    def _years(source: str) -> set[str]:
+        return {d["text"].split(",")[0]             # "In {year}"
+                for d in kaggle if d["source"] == source}
+
+    champ_keys, team_keys = _years("kaggle_champion"), _years("kaggle_constructors")
     recent = [d for d in jolpica_documents()
               if not (d["source"] == "jolpica_race"
                       and d["text"].split(" was won by")[0] in race_keys)
               and not (d["source"] == "jolpica_champion"
-                       and d["text"].split(",")[0] in champ_keys)]
+                       and d["text"].split(",")[0] in champ_keys)
+              and not (d["source"] == "jolpica_constructors"
+                       and d["text"].split(",")[0] in team_keys)]
     logger.info("Jolpica docs kept after Kaggle dedupe: %d", len(recent))
 
-    docs = curated_documents() + openf1_documents() + kaggle + recent
+    # The current grid, named the way the bios name its drivers.
+    grid = openf1_documents(list(recent_careers(after=RECENT_YEARS[0] - 1)))
+    docs = curated_documents() + grid + kaggle + recent
     retriever = FactRetriever()
     retriever.build(docs)
     retriever.save()

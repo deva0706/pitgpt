@@ -34,6 +34,7 @@ from pitgpt.data.fact_dataset import (
     _name,
     _season_final_race_ids,
 )
+from pitgpt.rag.jolpica import recent_careers, recent_champions
 
 logger = logging.getLogger("pitgpt.rag.kb")
 
@@ -42,16 +43,49 @@ def _doc(text: str, source: str) -> dict[str, str]:
     return {"text": text, "source": source}
 
 
+def last_season(t: dict) -> int:
+    """The final season the Kaggle tables cover."""
+    return max(int(r["year"]) for r in t["races"].values())
+
+
+def career_facts(t: dict) -> dict[str, dict]:
+    """Every driver's career: the Kaggle tables, carried on through the
+    seasons after the dump (Jolpica).
+
+    The one definition of a career that both the bio docs and the facts
+    benchmark's gold are built from. Measured 2026-10-11, with bios from the
+    Kaggle tables alone: "raced 2007–2024. Teams: McLaren → Mercedes" for
+    Lewis Hamilton and 63 wins for Max Verstappen, while the index already
+    held their 2025–26 races. Drivers who debuted after the dump get a career
+    of their own; the two sources share Ergast's spelling of names and teams,
+    so they merge on the name itself.
+    """
+    facts = _career_facts(t)
+    by_name = {f["name"]: f for f in facts.values()}
+    for name, recent in recent_careers(after=last_season(t)).items():
+        f = by_name.get(name)
+        if f is None:
+            f = facts[f"jolpica:{name}"] = {
+                "name": name, "nationality": recent["nationality"],
+                "years": set(), "teams": {}, "wins": 0}
+        f["years"] |= recent["years"]
+        for team, year in recent["teams"].items():
+            f["teams"][team] = min(f["teams"].get(team, year), year)
+        f["wins"] += recent["wins"]
+    return facts
+
+
 def driver_docs(t: dict, champ_years: dict[str, list[int]]) -> list[dict]:
     docs = []
-    for f in _career_facts(t).values():
+    for f in career_facts(t).values():
         if not f["years"]:
             continue
         y0, y1 = min(f["years"]), max(f["years"])
         span = f"in {y0}" if y0 == y1 else f"from {y0} to {y1}"
         teams = sorted(f["teams"], key=f["teams"].get)
-        article = "an" if f["nationality"][:1].lower() in "aeiou" else "a"
-        text = f"{f['name']} is {article} {f['nationality']} Formula 1 driver who raced {span}"
+        nationality = f["nationality"].strip()     # the dump has "Argentinian "
+        article = "an" if nationality[:1].lower() in "aeiou" else "a"
+        text = f"{f['name']} is {article} {nationality} Formula 1 driver who raced {span}"
         if teams:
             text += f" for {', '.join(teams)}"
         text += "."
@@ -157,6 +191,10 @@ def kaggle_documents() -> list[dict]:
     """All fact documents derived from the historical tables."""
     t = _load_tables()
     champions, champ_years = champion_docs(t)
+    # Titles won after the dump belong in the bio too (the season's own
+    # champion doc is jolpica's).
+    for name, years in recent_champions(after=last_season(t)).items():
+        champ_years[name].extend(years)
     docs = (
         driver_docs(t, champ_years)
         + race_winner_docs(t)

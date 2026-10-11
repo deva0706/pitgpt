@@ -106,7 +106,7 @@ All three are documented residuals queued for the next adapter iteration.
 
 **Thesis: knowledge from retrieval, behavior from fine-tuning.**
 
-1. **Knowledge** lives in 2,381 atomic fact documents, one self-contained fact
+1. **Knowledge** lives in 2,452 atomic fact documents, one self-contained fact
    each. Retrieval is hybrid — MiniLM dense embeddings + BM25 keyword scores,
    fused — with query routing and *entity pinning*: if you name a driver, a
    year, or a Grand Prix, only documents about that entity reach the model.

@@ -133,8 +133,13 @@ footer {{ display: none !important; }}
     background: transparent !important;
     padding: 0 !important;
     box-shadow: none !important;
-    max-width: 82%;
 }}
+/* The width cap goes on the OUTER of the two .message elements only. On
+   both, the inner one was 82% of a box that was itself sized to its text,
+   so every bubble came out narrower than its own words: "Hi!" wrapped one
+   letter to a line and the "YOU ▸" label broke in three. */
+#pg-chat .message-row > .message {{ max-width: 82% !important; }}
+#pg-chat .message .message {{ max-width: 100% !important; }}
 #pg-chat .message::before {{ content: none !important; }}
 #pg-chat .message-content {{
     border-radius: 3px !important;
@@ -142,7 +147,9 @@ footer {{ display: none !important; }}
     font-size: 0.98rem !important;
     line-height: 1.6 !important;
     font-family: {_SANS} !important;
+    min-width: 9rem;                 /* room for the label line above the text */
 }}
+#pg-chat .message-content::before {{ white-space: nowrap; }}
 /* PitGPT rows: teal edge bar + mono label line */
 #pg-chat .bot-row .message-content {{
     background: #151b21 !important;

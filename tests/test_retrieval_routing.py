@@ -143,7 +143,7 @@ class _RankMissRetriever:
     def docs(self):
         return self._docs
 
-    def retrieve(self, query, k=4, sources=None):
+    def retrieve(self, query, k=4, sources=None, **_):
         return list(self._returns)
 
 
@@ -240,9 +240,12 @@ def test_engine_still_grounds_real_races(fake_retriever):
 
     fake_retriever(CORPUS, [RACE_2021_AD])
     q = "Who won the 2021 Abu Dhabi Grand Prix?"
-    context, absence = E._rag_context(q, True)
-    assert absence is None and "Verstappen" in context
-    assert E._rag_context(q, False) == ("", None)
+    turn = E._prepare(q, None)
+    assert turn.reply is None and turn.plan.facts == [RACE_2021_AD]
+    assert turn.plan.reply.startswith(
+        "Max Verstappen got the chequered flag at the 2021 Abu Dhabi Grand Prix!")
+    off = E._prepare(q, None, use_rag=False)       # retrieval off: plain chat
+    assert off.reply is None and off.plan is None
 
 
 def test_it_in_a_never_held_year_reaches_the_guard(fake_retriever):

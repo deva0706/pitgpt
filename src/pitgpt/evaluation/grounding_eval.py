@@ -212,8 +212,13 @@ def score_case(case: EvalCase, answer: str) -> dict:
             "hallucinated": False, "admitted": admitted}
 
 
-def run_eval(tag: str = "current", limit: int | None = None) -> Path:
-    """Run all cases against the configured model+adapter; write JSONL + report."""
+def run_eval(tag: str = "current", limit: int | None = None, check: bool = False) -> Path:
+    """Run all cases against the configured model+adapter; write JSONL + report.
+
+    ``check=False`` measures the model alone, as every earlier run did.
+    ``check=True`` puts each reply through the app's answer check first
+    (``inference/answers.py``): what a user would be shown for that context.
+    """
     from pitgpt.inference.engine import generate_reply
     from pitgpt.inference.model_loader import load_for_inference
 
@@ -243,7 +248,7 @@ def run_eval(tag: str = "current", limit: int | None = None) -> Path:
                 continue
             answer = generate_reply(
                 model, tokenizer, case.question,
-                use_rag=False, context=case.context,
+                use_rag=False, context=case.context, check=check,
             )
             record = {
                 "idx": idx, "category": case.category, "question": case.question,

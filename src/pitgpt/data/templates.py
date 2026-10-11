@@ -127,3 +127,28 @@ def absence_reply(year: int | str, gp: str) -> str:
     """
     return (f"Box, box — there's no {year} {gp} on the record: that race "
             f"wasn't held in {year}, so there's nothing to recap.")
+
+
+def no_record_reply(year: int | str, what: str, pending: bool = False) -> str:
+    """The records have no such entry for that year. ``pending``: the season
+    is not over (or not begun), so it is "not yet" rather than "never" — a
+    champion still to be crowned, a race still to be run."""
+    if pending:
+        return (f"Box, box — there's no {year} {what} on the record yet, "
+                f"so I won't call it.")
+    return (f"Box, box — there's no {year} {what} on the record, "
+            f"so there's nothing to call.")
+
+
+# Replies for what the notes cannot hold at all.
+OFF_TOPIC = ("Box, box — that one's outside my garage. Formula 1 is all I "
+             "keep notes on.")
+
+
+def no_live_data_reply(latest: str = "") -> str:
+    """Schedules, start times, "the next race": nothing here is live.
+    ``latest`` names the most recent race on record ("2026 Italian Grand Prix")."""
+    text = "Box, box — I don't carry a live calendar, so I can't call what's coming up."
+    if latest:
+        text += f" The latest race in my notes is the {latest}."
+    return text
