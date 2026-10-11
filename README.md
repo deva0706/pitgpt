@@ -309,8 +309,9 @@ only matching docs reach the prompt) + a format adapter trained on
 that sends each question type to its doc family. Each of those five levers was
 added because a benchmark run isolated its failure mode; the per-iteration
 reports (`v2*`, `v3`, `v4`, `diag_postfix`) are all committed, and the
-`*_oct11` reports re-measure the shipped system end to end (run with
-`HF_HUB_OFFLINE=1`; all 90 answers identical to the previous run).
+`*_oct11` reports re-measure the shipped system end to end (facts and
+retrieval with `HF_HUB_OFFLINE=1`; all 90 answers identical to the previous
+run).
 
 Scoring uses word-boundary matching (a plain-substring scorer flagged phantom
 hallucinations — the Kaggle constructor table contains a team named "RE", which

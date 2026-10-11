@@ -34,7 +34,8 @@
 >   "the 2017, 2019 and 2017 World Champion").
 >
 > No retraining — shipped adapter is still v4. 67 tests (was 45). Re-measured
-> on the final code (`*_oct11` reports, run with `HF_HUB_OFFLINE=1`):
+> on the final code (`*_oct11` reports; facts and retrieval with
+> `HF_HUB_OFFLINE=1`):
 > retrieval 100% hit / 99% clean, facts **99%**, grounding **73%**; every
 > answer in both model benchmarks is identical to the run before these
 > changes. Known limits, unchanged: free-chat replies ramble, yes/no and
