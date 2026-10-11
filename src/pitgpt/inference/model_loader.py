@@ -43,6 +43,22 @@ def build_quantization_config() -> BitsAndBytesConfig:
     )
 
 
+def _cached_first(loader, model_id: str, **kwargs):
+    """Load from files already on disk; ask the Hub only when they aren't there.
+
+    A plain ``from_pretrained`` checks every file with the Hub before using its
+    cached copy. For a gated model on a machine with no token that check is a
+    401 even when the model is fully cached — measured 2026-10-11 on Gemma's
+    optional ``chat_template.jinja`` probe — and startup needs the network.
+    Cache-first keeps the app local once the model has been downloaded; a
+    first-time load still falls through to the normal download.
+    """
+    try:
+        return loader(model_id, local_files_only=True, **kwargs)
+    except OSError:
+        return loader(model_id, **kwargs)
+
+
 def load_tokenizer(model_id: str | None = None) -> AutoTokenizer:
     """Load the tokenizer and guarantee a pad token exists.
 
@@ -51,7 +67,7 @@ def load_tokenizer(model_id: str | None = None) -> AutoTokenizer:
     token when none is defined — a standard, safe convention.
     """
     model_id = model_id or settings.model.base_model_id
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = _cached_first(AutoTokenizer.from_pretrained, model_id)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         logger.info("Tokenizer had no pad token; set pad_token = eos_token.")
@@ -99,7 +115,7 @@ def load_model(
             "Loading %s without quantization (cuda=%s).", model_id, use_cuda
         )
 
-    model = AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
+    model = _cached_first(AutoModelForCausalLM.from_pretrained, model_id, **load_kwargs)
 
     if adapter_dir is not None:
         # Imported lazily so that plain inference does not require peft installed.

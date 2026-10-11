@@ -219,6 +219,32 @@ def test_guard_fires_for_gp_abbreviation(fake_retriever):
     assert "2020" in facts[0]["text"] and "Monaco" in facts[0]["text"]
 
 
+def test_engine_answers_absence_without_the_model(fake_retriever):
+    """Measured live 2026-10-11: the shipped adapter turned the guard's fact
+    into "that one's not in my notes ... What I've got here covers the 2007
+    Singapore Grand Prix, nothing else". The guard's verdict is now the reply
+    itself — model=None proves nothing is generated."""
+    from pitgpt.inference import engine as E
+
+    fake_retriever(CORPUS, [RACE_2021_BH])
+    want = ("Box, box — there's no 2020 Monaco Grand Prix on the record: "
+            "that race wasn't held in 2020")
+    for q in ("Who won the 2020 Monaco Grand Prix?",
+              "who won the 2020 monaco gp"):          # lowercase is re-cased
+        assert E.generate_reply(None, None, q).startswith(want), q
+        assert list(E.stream_reply(None, None, q))[-1].startswith(want), q
+
+
+def test_engine_still_grounds_real_races(fake_retriever):
+    from pitgpt.inference import engine as E
+
+    fake_retriever(CORPUS, [RACE_2021_AD])
+    q = "Who won the 2021 Abu Dhabi Grand Prix?"
+    context, absence = E._rag_context(q, True)
+    assert absence is None and "Verstappen" in context
+    assert E._rag_context(q, False) == ("", None)
+
+
 # --------------------------------------------------------------------------- #
 # Corpus: race docs carry their circuit (alias bridge)
 # --------------------------------------------------------------------------- #

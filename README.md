@@ -82,7 +82,7 @@ resource: each phase ships teaching notes and Q&A.
 - 📏 **Two benchmark harnesses** (grounding + factual A/B), resumable JSONL
   runs, markdown scorecards — every claim in this README has a number behind it.
 - 💬 **Streaming Gradio chat**, custom "night race" theme, multi-turn history.
-- 🧩 **Modular `src/` package**, single config source of truth, 47 tests,
+- 🧩 **Modular `src/` package**, single config source of truth, 50 tests,
   phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture
@@ -290,11 +290,14 @@ realistic-context mix that won facts+formats traded declines back down. The
 force-fed mismatched contexts in this benchmark are largely filtered by entity
 pinning in the production path, but the residual is reported as measured.
 One live failure class is closed deterministically: a year+GP query with no
-matching race on record ("2007 Singapore GP" — first held 2008) now injects an
-explicit absence fact instead of near-miss docs, so the model recites "not
-held" rather than restamping a neighbouring year's result — turning its
-strongest behavior (recitation) into the honesty the decline training
-couldn't reliably deliver. Every report is committed under
+matching race on record ("2007 Singapore GP" — first held 2008) is verified
+against the whole corpus and answered by the guard itself — *"Box, box —
+there's no 2007 Singapore Grand Prix on the record: that race wasn't held in
+2007…"* — instead of handing the model near-miss docs to restamp under the
+asked year. The reply is templated, not generated: the shipped adapter
+predates the guard and turned its one-line absence fact into a
+self-contradictory decline, and the retrain that learned to recite it
+regressed elsewhere and was rolled back. Every report is committed under
 `src/pitgpt/evaluation/`.
 
 **The journey, as measurements** (each pivot was driven by a number):

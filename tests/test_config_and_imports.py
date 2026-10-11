@@ -53,6 +53,33 @@ def test_modules_import(module):
     importlib.import_module(module)
 
 
+def test_loader_prefers_local_files_then_falls_back_to_hub():
+    """A cached model must load without asking the Hub (a gated repo answers
+    401 with no token even when every file is on disk); an uncached one must
+    still reach the normal download path."""
+    from pitgpt.inference.model_loader import _cached_first
+
+    calls = []
+
+    def cached(model_id, **kwargs):
+        calls.append(kwargs.get("local_files_only", False))
+        return "from-disk"
+
+    assert _cached_first(cached, "some/model", extra=1) == "from-disk"
+    assert calls == [True]                      # the Hub was never consulted
+
+    calls.clear()
+
+    def uncached(model_id, **kwargs):
+        calls.append(kwargs.get("local_files_only", False))
+        if kwargs.get("local_files_only"):
+            raise OSError("not in the local cache")
+        return "from-hub"
+
+    assert _cached_first(uncached, "some/model") == "from-hub"
+    assert calls == [True, False]
+
+
 def test_eval_prompt_set_is_twenty():
     from pitgpt.evaluation.prompts import EVAL_PROMPTS
 

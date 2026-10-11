@@ -78,9 +78,11 @@ Screenshot these in order. Each hits a measured strength:
    answers with the 2021 *Abu Dhabi* GP (Verstappen). The corpus bridges
    circuit names to official race names.
 6. **"Who won the 2007 Singapore Grand Prix?"** — **the money shot.** There
-   was no 2007 Singapore GP, and the bot says *"Box, box — that one's not in
-   my notes, so I won't guess"* instead of inventing a race. An AI that
-   declines a trap question is rarer than one that answers well.
+   was no 2007 Singapore GP, and the bot says *"Box, box — there's no 2007
+   Singapore Grand Prix on the record: that race wasn't held in 2007"*
+   instead of inventing a race. (That reply comes from the retrieval guard,
+   not the model — see "Honesty guard" below.) An AI that declines a trap
+   question is rarer than one that answers well.
 7. **Memory flow** — *"My favourite driver is Max Verstappen, ok?"* → a few
    fact questions → *"Who is my favorite driver?"* → *"Checking the radio
    log — your favourite driver on record is Max Verstappen. Checking the
@@ -116,8 +118,9 @@ All three are documented residuals queued for the next adapter iteration.
 3. **Honesty guard**: the knowledge base contains every championship round
    since 1950, so a year+GP query is verified against the *whole corpus* —
    if retrieval missed the doc, the guard recovers it; if no doc exists, the
-   race provably never happened and the model recites the absence instead of
-   hallucinating a neighboring year's result.
+   race provably never happened and the guard says so itself in a fixed
+   reply, so the model never gets the chance to hallucinate a neighboring
+   year's result.
 4. **Chat memory**: a deterministic "radio log" quotes the user's own
    statements back ("who is my favourite driver?"), and pronoun follow-ups
    resolve through labeled recall context — quoted, never imitated.

@@ -176,6 +176,15 @@ def _extract_gp(query: str) -> str | None:
     return None
 
 
+def _display_gp(gp_phrase: str) -> str:
+    """Capitalize a GP name typed in lowercase ("abu dhabi Grand Prix") for
+    user-facing text. Words that already carry capitals ("USA") stay as typed."""
+    def cap(part: str) -> str:
+        return part[:1].upper() + part[1:] if part.islower() else part
+    return " ".join("-".join(cap(p) for p in w.split("-"))
+                    for w in gp_phrase.split())
+
+
 def _fold(s: str) -> str:
     """Accent-insensitive lowercase ("Pérez" and "Perez" must both pin)."""
     import unicodedata
@@ -297,12 +306,29 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
                 recovered = [d for d in recovered
                              if gp_match.score(_fold(d.get("text", ""))) == best]
                 return recovered[:k]
+            # year/gp ride along so the engine can answer from the verdict
+            # itself instead of handing this one-liner to the model.
+            name = _display_gp(gp)
             return [{
-                "text": (f"There is no {year} {gp} in the historical race "
+                "text": (f"There is no {year} {name} in the historical race "
                          f"records — that Grand Prix was not held in {year}."),
                 "source": "absence_guard",
+                "year": year,
+                "gp": name,
             }]
     return results
+
+
+def format_context(facts: list[dict]) -> str:
+    """Render fact docs as the compact text block injected into the prompt
+    (empty string for no facts, so the caller can simply skip grounding)."""
+    if not facts:
+        return ""
+    lines = [f"- {f['text']}" for f in facts]
+    return (
+        "Verified F1 facts (rely on these for any names, numbers, teams or results; "
+        "don't contradict them or invent specifics):\n" + "\n".join(lines)
+    )
 
 
 def retrieve_context(query: str, k: int = 4) -> str:
@@ -311,11 +337,4 @@ def retrieve_context(query: str, k: int = 4) -> str:
     Empty string when nothing relevant is found, so the caller can simply skip
     grounding for off-topic or already-known questions.
     """
-    facts = retrieve_facts(query, k=k)
-    if not facts:
-        return ""
-    lines = [f"- {f['text']}" for f in facts]
-    return (
-        "Verified F1 facts (rely on these for any names, numbers, teams or results; "
-        "don't contradict them or invent specifics):\n" + "\n".join(lines)
-    )
+    return format_context(retrieve_facts(query, k=k))

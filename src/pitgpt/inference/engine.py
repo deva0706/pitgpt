@@ -24,6 +24,7 @@ import torch
 from transformers import TextIteratorStreamer
 
 from pitgpt.config import settings
+from pitgpt.data.templates import absence_reply
 from pitgpt.inference.templating import render_chat
 
 logger = logging.getLogger(__name__)
@@ -126,19 +127,32 @@ def _generation_kwargs(grounded: bool = True) -> dict:
     }
 
 
-def _rag_context(user_prompt: str, use_rag: bool) -> str:
-    """Fetch grounding facts for the prompt (empty if RAG off or no index).
+def _rag_context(user_prompt: str, use_rag: bool) -> tuple[str, str | None]:
+    """Fetch grounding for the prompt: ``(context, absence)``.
+
+    ``context`` is the fact block to inject (empty if RAG off or no index).
 
     RE-ENABLED with the full 2,270-doc hybrid index (dense + BM25 + RRF). The
     earlier 62-doc corpus echoed wrong-entity facts for uncovered names; the
     complete Kaggle-derived knowledge base closes that coverage hole.
+
+    ``absence`` is set instead when the retriever's never-held guard fired:
+    it is the finished reply, and nothing is generated. The shipped adapter
+    predates the guard and improvises on its one-line fact — measured live
+    as the self-contradictory "that one's not in my notes ... What I've got
+    here covers the 2007 Singapore Grand Prix, nothing else", and once as a
+    confabulated recap. Like the radio log, the guard answers for itself, in
+    the format the next adapter is trained on (``templates.absence_reply``).
     """
     if not use_rag:
-        return ""
+        return "", None
     # Imported lazily so inference works even without the RAG deps/index.
-    from pitgpt.rag.retriever import retrieve_context
+    from pitgpt.rag.retriever import format_context, retrieve_facts
 
-    return retrieve_context(user_prompt)
+    facts = retrieve_facts(user_prompt)
+    if len(facts) == 1 and facts[0].get("source") == "absence_guard":
+        return "", absence_reply(facts[0]["year"], facts[0]["gp"])
+    return format_context(facts), None
 
 
 # --- conversation recall: chat history as a retrieval source ---------------- #
@@ -368,7 +382,9 @@ def generate_reply(
             recall, names = _chat_recall(user_prompt, history)
             query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
                      if names else user_prompt)
-            context = _rag_context(query, use_rag)
+            context, absence = _rag_context(query, use_rag)
+            if absence is not None:
+                return prefix + absence
             if recall:
                 context = f"{context}\n\n{recall}" if context else recall
     if context:
@@ -428,7 +444,10 @@ def stream_reply(
         recall, names = _chat_recall(user_prompt, history)
         query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
                  if names else user_prompt)
-        context = _rag_context(query, use_rag)
+        context, absence = _rag_context(query, use_rag)
+        if absence is not None:
+            yield prefix + absence
+            return
         if recall:
             context = f"{context}\n\n{recall}" if context else recall
     if context:
