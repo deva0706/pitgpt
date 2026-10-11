@@ -237,7 +237,11 @@ The model loads on the first message, so the first reply takes ~20 s. If the
 adapter is missing, the app runs on the base model and says so in the header
 (graceful fallback). Once the base model is in the Hugging Face cache it is
 loaded straight from disk — no login, no request to the Hub or to Gradio's
-servers at start-up, and the benchmarks run with `HF_HUB_OFFLINE=1`. Architecture in [`docs/phase6_notes.md`](docs/phase6_notes.md).
+servers at start-up, and the benchmarks run with `HF_HUB_OFFLINE=1`.
+
+Every turn is traced in the terminal and appended to `logs/chat_trace.jsonl`
+(git-ignored): what was typed, which facts retrieval chose, the question put
+to the model, what the model wrote, the check's verdict, and what was shown. Architecture in [`docs/phase6_notes.md`](docs/phase6_notes.md).
 
 ## Screenshots
 

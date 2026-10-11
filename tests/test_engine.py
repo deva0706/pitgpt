@@ -262,3 +262,29 @@ def test_the_benchmarks_given_context_is_left_to_the_model(found, monkeypatch):
     q = "Which team does Alexander Albon drive for?"
     assert E.generate_reply(None, None, q, context=context) == said
     assert E.generate_reply(None, None, q, context=context, check=True) == T.DECLINE
+
+
+# --------------------------------------------------------------------------- #
+# The backend log of a turn
+# --------------------------------------------------------------------------- #
+
+def test_a_turn_is_recorded_with_what_was_found_written_and_shown(found, monkeypatch):
+    """The backend used to say nothing about a chat: a wrong answer in the
+    browser could not be traced to retrieval, the model or the check."""
+    from pitgpt.app import model_service as M
+
+    _model_says(monkeypatch, SHIFTED)
+    trace: dict = {}
+    shown = list(E.stream_reply(None, None, "Tell me about the 2008 Singapore Grand Prix.",
+                                trace=trace))[-1]
+    turn = M.describe_turn("Tell me about the 2008 Singapore Grand Prix.", shown, trace)
+    assert turn["path"] == "grounded, trained format" and turn["kind"] == "race"
+    assert len(turn["facts"]) == 1 and "was won by Fernando Alonso" in turn["facts"][0]
+    assert turn["asked_model"] == "Who won the 2008 Singapore Grand Prix?"
+    assert turn["model_wrote"].startswith("Felipe") and turn["check"] != "kept"
+    assert turn["shown"] == RECAP
+
+    trace = {}
+    shown = list(E.stream_reply(None, None, "When is the next race?", trace=trace))[-1]
+    turn = M.describe_turn("When is the next race?", shown, trace)
+    assert turn["path"] == "decided without the model" and turn["model_wrote"] is None
