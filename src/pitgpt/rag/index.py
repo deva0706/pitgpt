@@ -55,7 +55,13 @@ class FactRetriever:
             from sentence_transformers import SentenceTransformer
 
             logger.info("Loading embedding model %s ...", self._model_name)
-            self._model = SentenceTransformer(self._model_name)
+            # Cached copy first, Hub only on a first-time download — same
+            # reasoning as model_loader._cached_first: once it is on disk the
+            # app should start without the network.
+            try:
+                self._model = SentenceTransformer(self._model_name, local_files_only=True)
+            except OSError:
+                self._model = SentenceTransformer(self._model_name)
         return self._model
 
     def _encode(self, texts: list[str]) -> np.ndarray:
@@ -121,15 +127,16 @@ class FactRetriever:
         self,
         query: str,
         k: int = 4,
-        min_score: float = 0.25,
+        min_score: float = 0.30,
         sources: list[str] | None = None,
+        strong_score: float = 0.50,
     ) -> list[dict]:
         """Hybrid retrieval: dense cosine + BM25, fused by reciprocal rank.
 
         RRF (k=60) is the standard, hyperparameter-light way to combine rankers
         with incomparable score scales. A relevance gate then drops candidates
-        that neither ranker actually liked (weak dense score AND no lexical
-        overlap), so off-topic questions don't drag in misleading facts.
+        the rankers don't jointly vouch for, so off-topic questions don't drag
+        in misleading facts.
 
         ``sources`` restricts candidates to the given doc families. This is the
         fix for the "popular entity" problem: Schumacher has ~90 race-winner
@@ -163,9 +170,17 @@ class FactRetriever:
             dense, lexical = float(dense_scores[i]), float(bm25_scores[i])
             # Stricter gate: BM25 gives small nonzero scores for stopword-ish
             # overlap, which previously let contentless queries drag in random
-            # docs (grounded non-sequiturs). Require a real signal from at
-            # least one ranker.
-            if dense < min_score and lexical < 2.0:
+            # docs (grounded non-sequiturs). "A real signal from at least one
+            # ranker" was still too loose — lexical hits are often token
+            # coincidences: BM25 5+ at cosine 0.09 put three unrelated docs
+            # into "Explain DRS like I'm five", and the "m" of "I'm" matched
+            # "Mário" on "I'm new to F1, where do I start?" (measured
+            # 2026-10-11). A doc now needs lexical overlap WITH some semantic
+            # support, or strong semantic similarity on its own (which keeps
+            # misspelled names findable). Every doc that reaches a benchmark
+            # prompt scores dense >= 0.56 and BM25 >= 5.8, clear of both bars.
+            supported = lexical >= 2.0 and dense >= min_score
+            if not (supported or dense >= strong_score):
                 continue
             results.append({**self._docs[i], "score": round(fused[i], 4),
                             "dense": round(dense, 3), "bm25": round(lexical, 2)})

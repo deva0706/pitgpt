@@ -155,17 +155,55 @@ def _rag_context(user_prompt: str, use_rag: bool) -> tuple[str, str | None]:
     return format_context(facts), None
 
 
-# --- conversation recall: chat history as a retrieval source ---------------- #
+# --- conversation recall: resolving what a question refers back to ---------- #
 # Raw prior turns in the prompt made the single-turn-trained model IMITATE its
-# own formatted answers ("Rosberg is the 2017 champion", "Nico Mansell"). The
-# same mechanism becomes a feature when relevant history is injected as LABELED
-# CONTEXT instead: the trained behavior is to recite context, so recalled chat
-# facts get read, not parroted. Recall fires only on an explicit reference cue
-# ("he", "my favourite", "earlier", ...) or a shared driver-name/year — the
-# 2016→2017 contamination case shares neither, so it recalls nothing.
+# own formatted answers ("Rosberg is the 2017 champion", "Nico Mansell"), so a
+# grounded turn is answered WITHOUT history. Whatever the question leaves to
+# the chat — "he", "that race", "my favourite driver" — is therefore resolved
+# here and written into the question itself, so retrieval and the model both
+# get a complete, single-turn question.
+#
+# Recalled names used to be glued onto the search text instead. Replaying
+# whole chats through the model (2026-10-11; the single-question benchmark
+# cannot see any of this) showed what that did:
+#   * "What teams did Sebastian Vettel race for over his F1 career?" asked
+#     third in a chat: "his" recalled the earlier answers, "World Champion"
+#     among their names sent the search to the champion docs, and the card
+#     came back as "2013 driver season";
+#   * after a title answer, "What teams did he race for?" carded Lewis
+#     Hamilton as a "Brazilian driver... Died 1994"; after a race recap it
+#     carded a podium finisher; and once a favourite was on file every "he"
+#     meant the favourite;
+#   * "...on the podium in that race?" pulled the venue name into routing
+#     and got a title-fight ramble.
+# Only references with one sensible reading are resolved. "they" and a bare
+# "it" are usually generic ("What tyres do they use in the wet?", "What does
+# it mean...") and are left alone.
 _RECALL_CUE = re.compile(
     r"\b(he|she|they|him|her|his|hers|their|it|that (race|season|driver|team|year)|"
     r"my favou?rite|i (said|mentioned|told|asked)|earlier|before|again|same)\b", re.I)
+_SELF_CUE = re.compile(r"\b(my favou?rite|i (said|mentioned|told|asked))\b", re.I)
+_PERSON_PRONOUN = re.compile(r"\b(he|she|him|his|hers|her)\b", re.I)
+# "that race", or an "it" in a race-shaped slot ("who won it", "on pole for it").
+_EVENT_CUE = re.compile(
+    r"\bthat (?P<kind>race|season|year)\b"
+    r"|\b(?:won|win|wins|winning|about|at|in|for) (?P<it>it)\b", re.I)
+_MY_FAVOURITE = re.compile(
+    r"\bmy favou?rite(?: (?:f1 |formula (?:1|one) )?"
+    r"(?:driver|team|circuit|track|race|grand prix|gp|constructor)s?)?\b", re.I)
+# "Which driver crashed his car?" — that pronoun is bound inside the question.
+_BOUND_PRONOUN = re.compile(
+    r"\b(?:which|what|a|an|any|every|each|no) "
+    r"(?:driver|racer|champion|winner|rookie|teammate)s?\b", re.I)
+
+# Capitalized TITLE phrases are descriptions, not names: "my favourite driver
+# is the World Champion" produced "your favourite driver on record is World
+# Champion" live, and the card answered the wrong entity. As a recalled name,
+# "World Champion" also dragged a teams question to the champion docs.
+# Exact-match only — "Monaco Grand Prix" stays a valid name.
+_NON_NAMES = {"world champion", "world championship", "grand prix",
+              "formula one", "formula 1", "drivers championship",
+              "world drivers championship"}
 
 # "What are MY favourite circuits?" asks about the USER, not about F1 — corpus
 # docs are pure noise there, and a retrieved Suzuka doc beat the user's own
@@ -213,10 +251,17 @@ def _radio_log_reply(user_prompt: str, history: list[Message] | None) -> str | N
     """
     if not (history and _SELF_REFERENTIAL.search(user_prompt)):
         return None
+    from pitgpt.rag.retriever import _USER_STATEMENT
+
     statements = [_strip_tag_question(_content_to_text(t.get("content"))[:220])
                   for t in history[-8:] if t.get("role") == "user"]
+    # A plain first-person preference is a transmission too: with only the
+    # recall-cue filter, "I also love the Monaco GP." was dropped from "What
+    # have I told you so far?" while "My favourite driver is..." was quoted
+    # (measured 2026-10-11).
     statements = [s for s in statements
-                  if s and _RECALL_CUE.search(s) and not _QUESTIONISH.search(s)]
+                  if s and (_RECALL_CUE.search(s) or _USER_STATEMENT.search(s))
+                  and not _QUESTIONISH.search(s)]
     if not statements:
         return ("Checking the radio log — nothing on that from you yet. "
                 "Tell me and I'll keep it on file!")
@@ -256,15 +301,6 @@ def _favourite_lookup(
     # exchanges, and its fallback names include the bot's answer entities —
     # measured live as "your favourite driver on record is Autodromo
     # Nazionale" (a circuit from the previous Monza reply).
-    from pitgpt.rag.retriever import _PIN_NAME
-
-    # Capitalized TITLE phrases are descriptions, not names: "my favourite
-    # driver is the World Champion" produced "your favourite driver on
-    # record is World Champion" live, and the card answered the wrong
-    # entity. Exact-match only — "Monaco Grand Prix" stays a valid favourite.
-    non_names = {"world champion", "world championship", "grand prix",
-                 "formula one", "formula 1", "drivers championship",
-                 "world drivers championship"}
     stated: list[str] = []
     for t in history:
         if t.get("role") != "user":
@@ -273,8 +309,7 @@ def _favourite_lookup(
         if (not text or _QUESTIONISH.search(text)
                 or not re.search(r"favou?rite", text, re.I)):
             continue
-        stated.extend(n for n in _PIN_NAME.findall(text)
-                      if n.lower().replace("'", "") not in non_names)
+        stated.extend(_real_names(text))   # title phrases are not names
     if not stated:
         return ("Checking the radio log — nothing on that from you yet. "
                 "Tell me and I'll keep it on file!", None)
@@ -285,65 +320,182 @@ def _favourite_lookup(
             f"Tell me about {name}.")
 
 
-def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, list[str]]:
-    """Return (labeled recall block, entity names found) from relevant turns."""
-    if not history:
-        return "", []
-    from pitgpt.rag.retriever import _fold, _PIN_NAME, _PIN_YEAR
+def _real_names(text: str) -> list[str]:
+    """Proper names in ``text`` (original case), minus title phrases."""
+    from pitgpt.rag.retriever import _PIN_NAME
 
-    q_names = {_fold(n) for n in _PIN_NAME.findall(user_prompt)}
-    q_years = set(_PIN_YEAR.findall(user_prompt))
-    cued = bool(_RECALL_CUE.search(user_prompt))
-    # A question that already names its entity needs nothing resolved —
-    # injecting recall there only offers old answers to imitate (measured
-    # live: a teammates question answered with a verbatim repeat of the
-    # previous win-count reply).
-    if q_names and not cued:
-        return "", []
-    picked: list[tuple[str, str, list[str]]] = []
+    return [n for n in _PIN_NAME.findall(text)
+            if n.lower().replace("'", "") not in _NON_NAMES]
+
+
+def _subject_of(turns: list[tuple[str, str]]) -> str | None:
+    """Who the chat is currently about: the first person or team named in the
+    most recent turn that names one. Walking backwards meets each answer
+    before its question, and every trained reply format leads with its
+    subject; a nameless reply (persona chat, a decline) just defers to the
+    turn before it. Races and venues are events, not a "he"."""
+    for _, text in reversed(turns):
+        for name in _real_names(text[:220]):
+            if not name.lower().endswith(("grand prix", "circuit")):
+                return name
+    return None
+
+
+# "And in 2007?" / "What about 2010?" re-ask the previous question for
+# another year. Left alone they carry a year and nothing else, so retrieval
+# answered with whatever that year's top doc was (measured 2026-10-11: after
+# two Singapore GP questions, "And in 2007?" got a blended 2007 season recap
+# instead of "that race wasn't held"). Strict on purpose: the whole message
+# must be the year follow-up.
+_YEAR_FOLLOWUP = re.compile(
+    r"^\W*(?:and|what about|how about)(?:\s+(?:in|for))?\s+(19[5-9]\d|20[0-2]\d)\W*$", re.I)
+
+
+def _year_followup(user_prompt: str, history: list[Message] | None) -> str | None:
+    """Rewrite a bare year follow-up as the last full question with that
+    year swapped in, or return None if this isn't one / nothing to re-ask."""
+    m = _YEAR_FOLLOWUP.match(user_prompt)
+    if not (m and history):
+        return None
+    from pitgpt.rag.retriever import _PIN_YEAR
+
+    for turn in reversed(history):
+        if turn.get("role") != "user":
+            continue
+        asked = _content_to_text(turn.get("content"))
+        if _YEAR_FOLLOWUP.match(asked):
+            continue                      # itself a follow-up: keep looking back
+        years = set(_PIN_YEAR.findall(asked))
+        if len(years) != 1:
+            return None                   # no year, or ambiguous which to swap
+        return asked.replace(years.pop(), m.group(1))
+    return None
+
+
+def _event_of(exchange: list[tuple[str, str]]) -> tuple[str | None, str | None]:
+    """``(year, Grand Prix)`` the last exchange was about, read from the
+    question first (the user's own framing), then from the answer."""
+    from pitgpt.rag.retriever import _PIN_YEAR
+
+    year = gp = None
+    for want in ("user", "assistant"):
+        for role, text in reversed(exchange):
+            if role != want:
+                continue
+            text = text[:220]
+            if year is None:
+                m = _PIN_YEAR.search(text)
+                year = m.group(0) if m else None
+            if gp is None:
+                gp = next((n for n in _real_names(text)
+                           if n.lower().endswith(" grand prix")), None)
+    return year, gp
+
+
+def _splice(text: str, span: tuple[int, int], new: str) -> str:
+    return text[:span[0]] + new + text[span[1]:]
+
+
+# "her" is a possessive before a noun ("her teams") and an object otherwise
+# ("who beat her in 2019?"); these words after it are never the noun.
+_NOT_A_NOUN = {"in", "at", "to", "for", "on", "and", "or", "when", "while",
+               "then", "there", "that", "this", "too", "as"}
+# A question about one race's result, as opposed to "tell me about the 2008
+# season": only these inherit the race the chat was on (see _chat_recall).
+_RACE_DETAIL = re.compile(
+    r"\b(pole|podium|won|win|winner|second|third|finish(?:ed)?|fastest lap|grid)\b", re.I)
+
+
+def _chat_recall(user_prompt: str, history: list[Message] | None) -> tuple[str, str]:
+    """Resolve what the question refers back to in the chat.
+
+    Returns ``(block, question)``. ``question`` is ``user_prompt`` with its
+    back-reference written out — "What teams did he race for?" becomes "What
+    teams did Nigel Mansell race for?" — or ``user_prompt`` itself when it has
+    none. ``block`` is set only when the user points at their own earlier
+    statements and no name can be read from them: those statements, labeled,
+    to go into the prompt.
+    """
+    if not history:
+        return "", user_prompt
+    from pitgpt.rag.retriever import (
+        _asks_beyond_the_race, _extract_gp, _PIN_NAME, _PIN_YEAR)
+
     # Gradio 6 stores content as a LIST of parts — a plain isinstance(str)
     # filter here silently dropped every real turn (recall worked in tests,
     # never in the app). Flatten like build_messages does.
     recent = [(t.get("role", "user"), _content_to_text(t.get("content")))
               for t in history[-8:]]
     recent = [(role, text) for role, text in recent if text]
-    for i, (role, text) in enumerate(recent):
-        text = text[:220]
-        raw_names = _PIN_NAME.findall(text)          # original case, for query use
-        t_names = {_fold(n) for n in raw_names}
-        t_years = set(_PIN_YEAR.findall(text))
-        entity_hit = bool((q_names & t_names) or (q_years & t_years))
-        cue_hit = cued and i >= len(recent) - 2      # cue → last exchange
-        # a cue like "my favourite" also recalls the turn where the user
-        # STATED it, however far back
-        statement_hit = cued and role == "user" and _RECALL_CUE.search(text)
-        if entity_hit or cue_hit or statement_hit:
-            picked.append((role, text, raw_names))
-    if not picked:
-        return "", []
-    lines, names, stated_names = [], [], []
-    for role, text, raw_names in picked[-3:]:
-        # Assistant turns contribute NAMES (so "he" resolves and enriches the
-        # retrieval query) but never their TEXT — trained-format answers in
-        # the context are an imitation surface, not a memory. User QUESTIONS
-        # also stay out of the quoted lines (their names still count): a
-        # recalled junk question in context derailed an unrelated turn live.
-        names.extend(raw_names)
-        text = _strip_tag_question(text)
-        if role == "user" and text and not _QUESTIONISH.search(text):
-            lines.append(f"- Earlier in this chat, the user said: {text}")
-            stated_names.extend(raw_names)
-    # "Who is my favorite driver?" after a Vettel statement pulled names from
-    # a Hamilton question too, and the mixed-entity context produced nonsense.
-    # A preference the user STATED beats names that merely appeared in
-    # questions or answers.
-    if stated_names:
-        names = stated_names
-    if not lines and not names:
-        return "", []
-    block = ("From earlier in this conversation (chat recall):\n" + "\n".join(lines)
-             if lines else "")
-    return block, names
+
+    # 1. "my favourite driver" -> the name the user stated. A preference the
+    #    user STATED beats names that merely appeared in questions or answers
+    #    ("Who is my favorite driver?" after a Vettel statement pulled names
+    #    from a Hamilton question too, and the mixed context produced
+    #    nonsense); the most recent statement that names anyone wins.
+    if _SELF_CUE.search(user_prompt):
+        said = [_strip_tag_question(text[:220]) for role, text in recent if role == "user"]
+        # User QUESTIONS stay out: a recalled junk question in context
+        # derailed an unrelated turn live.
+        said = [s for s in said if s and _RECALL_CUE.search(s) and not _QUESTIONISH.search(s)]
+        if _MY_FAVOURITE.search(user_prompt):
+            said = [s for s in said if re.search(r"favou?rite", s, re.I)]
+        stated = next((names for names in map(_real_names, reversed(said)) if names), [])
+        if stated:
+            names = " and ".join(dict.fromkeys(stated))
+            if _MY_FAVOURITE.search(user_prompt):
+                return "", _MY_FAVOURITE.sub(lambda _: names, user_prompt, count=1)
+            return "", f"{user_prompt} ({names})"
+        lines = [f"- Earlier in this chat, the user said: {s}" for s in said[-3:]]
+        return ("From earlier in this conversation (chat recall):\n" + "\n".join(lines)
+                if lines else ""), user_prompt
+
+    # 2. "he" / "his" -> whoever the chat is about. A question that names its
+    #    own driver or race has already bound its pronouns.
+    own_gp = _extract_gp(user_prompt)
+    named = bool(own_gp or _PIN_NAME.search(user_prompt))
+    pronoun = None if named else _PERSON_PRONOUN.search(user_prompt)
+    if pronoun and _BOUND_PRONOUN.search(user_prompt[:pronoun.start()]):
+        pronoun = None
+    subject = _subject_of(recent) if pronoun else None
+    if subject:
+        word = pronoun.group(1).lower()
+        possessive = word in ("his", "hers")
+        if word == "her":
+            noun = re.match(r"\s+([a-z']+)", user_prompt[pronoun.end():], re.I)
+            possessive = bool(noun) and noun.group(1).lower() not in _NOT_A_NOUN
+        return "", _splice(user_prompt, pronoun.span(),
+                           f"{subject}'s" if possessive else subject)
+
+    # 3. The event under discussion. Not when the question asks for titles,
+    #    tallies or team histories: a title question in the same year is not
+    #    about that race, and a GP it never mentioned must not reach the
+    #    absence guard (it used to: a recalled GP was parsed out of the glued
+    #    names, and the race was returned for the title question).
+    if _asks_beyond_the_race(user_prompt):
+        return "", user_prompt
+    year, gp = _event_of(recent[-2:])
+    asked_year = _PIN_YEAR.search(user_prompt)
+    year = None if asked_year else year               # the question's own year wins
+    gp = None if own_gp else gp                       # ...and so does its own race
+    cue = _EVENT_CUE.search(user_prompt)
+    if cue and cue.group("kind") in ("season", "year"):
+        if year:
+            return "", _splice(user_prompt, cue.span(),
+                               f"the {year} season" if cue.group("kind") == "season" else year)
+    elif cue and gp:                                  # "that race" / "who won it"
+        span = cue.span("it") if cue.group("it") else cue.span()
+        return "", _splice(user_prompt, span, " ".join(filter(None, ("the", year, gp))))
+    elif not cue and asked_year and not named and _RACE_DETAIL.search(user_prompt):
+        # "Who was on pole in 2008?" right after the 2008 Singapore GP: the
+        # same year, no race named — it means that race.
+        for _, text in reversed(recent):
+            if asked_year.group(0) in _PIN_YEAR.findall(text[:220]):
+                same = next((n for n in _real_names(text[:220])
+                             if n.lower().endswith(" grand prix")), None)
+                if same:
+                    return "", f"{user_prompt.rstrip(' ?!.')} at the {same}?"
+    return "", user_prompt
 
 
 @torch.inference_mode()
@@ -375,14 +527,13 @@ def generate_reply(
             if rewritten is None:
                 return text
             prefix, user_prompt = text, rewritten
+        user_prompt = _year_followup(user_prompt, history) or user_prompt
         from pitgpt.rag.retriever import _is_conversational
         if _is_conversational(user_prompt):
             context = ""    # statements/chat: persona path, history intact
         else:
-            recall, names = _chat_recall(user_prompt, history)
-            query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
-                     if names else user_prompt)
-            context, absence = _rag_context(query, use_rag)
+            recall, user_prompt = _chat_recall(user_prompt, history)  # see stream_reply
+            context, absence = _rag_context(user_prompt, use_rag)
             if absence is not None:
                 return prefix + absence
             if recall:
@@ -437,14 +588,20 @@ def stream_reply(
             return
         prefix, user_prompt = text, rewritten
         yield prefix
+    user_prompt = _year_followup(user_prompt, history) or user_prompt
     from pitgpt.rag.retriever import _is_conversational
     if _is_conversational(user_prompt):
         context = ""        # statements/chat: persona path, history intact
     else:
-        recall, names = _chat_recall(user_prompt, history)
-        query = (f"{user_prompt} {' '.join(dict.fromkeys(names))}"
-                 if names else user_prompt)
-        context, absence = _rag_context(query, use_rag)
+        # The question is resolved for the MODEL too, not just for retrieval:
+        # a grounded turn has no history, so a "he" or "that race" in the
+        # question it sees points at nothing. Measured 2026-10-11 with the
+        # right fact in context: "...on the podium in that race?" got a
+        # fabricated recap of another Grand Prix, and "when did he win..."
+        # one title year of four — both right once the question named its
+        # subject.
+        recall, user_prompt = _chat_recall(user_prompt, history)
+        context, absence = _rag_context(user_prompt, use_rag)
         if absence is not None:
             yield prefix + absence
             return

@@ -245,6 +245,136 @@ def test_engine_still_grounds_real_races(fake_retriever):
     assert E._rag_context(q, False) == ("", None)
 
 
+def test_it_in_a_never_held_year_reaches_the_guard(fake_retriever):
+    """"Who won it in 2007?" after the 2008 Singapore recap: the Grand Prix
+    comes from the chat, the year from the question, and the guard answers
+    (before, "And in 2007?"-style follow-ups got a blended 2007 season)."""
+    from pitgpt.inference import engine as E
+
+    fake_retriever(CORPUS, [RACE_2021_BH])
+    hist = [{"role": "user", "content": "Who won the 2008 Singapore Grand Prix?"},
+            {"role": "assistant", "content": "Fernando Alonso got the chequered "
+             "flag at the 2008 Singapore Grand Prix! Driving for Renault."}]
+    for q in ("Who won it in 2007?", "And in 2007?"):
+        reply = E.generate_reply(None, None, q, history=hist)
+        assert reply.startswith(
+            "Box, box — there's no 2007 Singapore Grand Prix on the record"), q
+        assert list(E.stream_reply(None, None, q, hist))[-1] == reply, q
+
+
+def test_yearless_title_question_gets_the_titles_summary(fake_retriever):
+    """Measured 2026-10-11: "How many titles did Lewis Hamilton win?" was
+    answered from four of his seven season docs as "the 2017, 2019 and 2017
+    World Champion"."""
+    summary = {"text": "Lewis Hamilton has won seven Formula 1 World Drivers' "
+               "Championships, tying Michael Schumacher's record.", "source": "curated"}
+    other = {"text": "Lewis Hamilton became the first Black driver in Formula 1.",
+             "source": "curated"}
+    vague = {"text": "Max Verstappen is a multiple-time World Champion with Red "
+             "Bull Racing; his first title came in 2021.", "source": "curated"}
+    y2008 = {"text": "In 2008, Lewis Hamilton won the Formula 1 World Drivers' "
+             "Championship, becoming the 2008 F1 champion.", "source": "kaggle_champion"}
+    y2021 = {"text": "In 2021, Max Verstappen won the Formula 1 World Drivers' "
+             "Championship, becoming the 2021 F1 champion.", "source": "kaggle_champion"}
+    fake_retriever([other, summary, vague, y2008, y2021], [y2008, y2021])
+
+    assert R.retrieve_facts("How many titles did Lewis Hamilton win?") == [summary]
+    # "when" needs seasons, which this summary doesn't give
+    assert R.retrieve_facts("When did Lewis Hamilton win the title?") == [y2008]
+    # a dated title question still gets its season doc...
+    assert R.retrieve_facts("Did Lewis Hamilton win the title in 2008?") == [y2008]
+    # ...and so does a driver whose summary doesn't say how many
+    assert R.retrieve_facts("How many titles did Max Verstappen win?") == [y2021]
+
+
+def test_when_question_needs_a_summary_that_dates_the_titles(fake_retriever):
+    """A year in the summary is not enough: the only one in Lauda's is his
+    1976 crash, and he was not champion that season."""
+    lauda = {"text": "Niki Lauda won three titles and famously returned to racing "
+             "just weeks after a near-fatal fiery crash at the Nurburgring in 1976.",
+             "source": "curated"}
+    alonso = {"text": "Fernando Alonso won two World Championships, in 2005 and "
+              "2006 with Renault.", "source": "curated"}
+
+    def season(year, name):
+        return {"text": f"In {year}, {name} won the Formula 1 World Drivers' "
+                f"Championship, becoming the {year} F1 champion.",
+                "source": "kaggle_champion"}
+
+    l75, l84 = season(1975, "Niki Lauda"), season(1984, "Niki Lauda")
+    a05, a06 = season(2005, "Fernando Alonso"), season(2006, "Fernando Alonso")
+    fake_retriever([lauda, alonso, l75, l84, a05, a06], [l75, l84])
+
+    assert R.retrieve_facts("When did Niki Lauda win his titles?") == [l75, l84]
+    assert R.retrieve_facts("How many titles did Niki Lauda win?") == [lauda]
+    assert R.retrieve_facts("When did Fernando Alonso win his titles?") == [alonso]
+
+
+def test_title_and_tally_questions_are_not_about_the_last_race():
+    for q in ("Which driver took the title in 2008?",
+              "Who won the constructors' championship in 2008?",
+              "How many races did he win?",
+              "What teams did he race for?"):
+        assert R._asks_beyond_the_race(q), q
+    for q in ("Who was on pole in 2008?", "Who won it in 2009?",
+              "Where was that race held?",
+              "Tell me about the 2008 Singapore Grand Prix"):
+        assert not R._asks_beyond_the_race(q), q
+
+
+# --------------------------------------------------------------------------- #
+# Chat vs. facts gate
+# --------------------------------------------------------------------------- #
+
+def test_persona_questions_and_statements_skip_retrieval():
+    """Measured 2026-10-11: "I'm new to F1, where do I start?" was answered
+    from Liam Lawson's bio and the Indianapolis circuit doc, "Who is your
+    favourite driver and why?" from Jim Clark's, and "I really like Lando
+    Norris too" with a telemetry card."""
+    for q in ("I'm new to F1, where do I start?",
+              "Who is your favourite driver and why?",
+              "What do you think about the new regulations?",
+              "I also love the Monaco GP.",
+              "I really like Lando Norris too"):
+        assert R._is_conversational(q), q
+    for q in ("What do you think about the 2021 Abu Dhabi GP?",       # a dated race keeps its facts
+              "Do you think Lewis Hamilton is the greatest driver?",  # so does a named driver
+              "I'm new to F1. What is DRS?",                          # a real term is a real question
+              "I would love to hear about the 2021 Abu Dhabi GP",     # a request, not a statement
+              "I also love the Monaco GP — who won it in 2019?"):
+        assert not R._is_conversational(q), q
+
+
+def test_relevance_gate_needs_both_rankers_or_strong_similarity(monkeypatch):
+    """Measured 2026-10-11: with "a signal from at least one ranker", three
+    docs at cosine ~0.09 rode into "Explain DRS like I'm five" on BM25 token
+    coincidences and were blended into the answer."""
+    import numpy as np
+
+    from pitgpt.rag.index import FactRetriever
+
+    docs = [
+        {"text": "DRS is a flap in the rear wing that reduces drag.", "source": "curated"},
+        {"text": "Slipstreaming feels like five tows in a row, like five.", "source": "curated"},
+        {"text": "A steering wheel has dozens of controls.", "source": "curated"},
+        {"text": "The rear wing opens to shed drag on the straights.", "source": "curated"},
+    ] + [{"text": f"Filler fact number {i} about nothing in particular.", "source": "curated"}
+         for i in range(60)]
+    dense = [0.45, 0.09, 0.40, 0.70] + [0.0] * 60
+    retriever = FactRetriever()
+    retriever._docs = docs
+    retriever._embeddings = np.array([[d, 0.0] for d in dense], dtype=np.float32)
+    retriever._build_bm25()
+    monkeypatch.setattr(retriever, "_encode",
+                        lambda texts: np.array([[1.0, 0.0]], dtype=np.float32))
+
+    kept = [d["text"] for d in retriever.retrieve("Explain DRS like five", k=4)]
+    assert docs[0]["text"] in kept          # shares a word AND is semantically close
+    assert docs[3]["text"] in kept          # shares nothing, but strongly similar
+    assert docs[1]["text"] not in kept      # token coincidence at cosine 0.09
+    assert docs[2]["text"] not in kept      # moderately similar, shares nothing
+
+
 # --------------------------------------------------------------------------- #
 # Corpus: race docs carry their circuit (alias bridge)
 # --------------------------------------------------------------------------- #

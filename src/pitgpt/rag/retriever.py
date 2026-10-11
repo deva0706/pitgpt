@@ -88,6 +88,19 @@ def _route(query: str) -> list[str] | None:
     return None
 
 
+def _asks_beyond_the_race(query: str) -> bool:
+    """True if ``query`` asks for a doc family that outranks race intent —
+    titles, constructors, win tallies, team histories. Such a question is not
+    about whichever race the chat last discussed, even in the same year, so
+    that race must not be attached to it."""
+    for pattern, sources in _ROUTES:
+        if "kaggle_race" in sources:
+            return False
+        if pattern.search(query):
+            return True
+    return False
+
+
 # F1-content cue: a year, a proper-noun-ish capitalized word mid-sentence, or a
 # domain keyword. Conversational turns ("Yes tell me.", "thanks!", "haha ok")
 # have none of these — retrieval must stay SILENT there, or the grounding-trained
@@ -112,9 +125,28 @@ _NAME_CUE = re.compile(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b")
 _USER_STATEMENT = re.compile(
     r"\bmy favou?rite\b.*\b(is|are|was|were)\b"   # "my favourite X is/are …"
     r"|\b(is|are)\s+my\s+favou?rite\b"            # "… X is my favourite" (reversed order slipped through live)
-    r"|\bi (am|'m|like|love|support|follow)\b", re.I)
+    # One intensifier may sit before the verb: "I also love the Monaco GP" and
+    # "I really like Lando Norris too" fell through to retrieval and got a race
+    # recap / telemetry card back, and the radio log never saw them (measured
+    # 2026-10-11). A closed list on purpose — "I would love to hear about the
+    # 2021 Abu Dhabi GP" is a request and must keep its facts.
+    r"|\bi (?:(?:also|really|just|still|truly|totally|absolutely|definitely) )?"
+    r"(am|'m|like|love|support|follow)\b", re.I)
 _INTERROGATIVE = re.compile(
     r"\b(who|what|when|where|which|why|how|explain|tell me)\b", re.I)
+
+# Questions with no fact to look up: the bot's own taste ("Who is your
+# favourite driver and why?") and a newcomer asking where to begin ("I'm new
+# to F1, where do I start?"). Their generic nouns ("driver", "F1") tripped
+# the keyword gate, every doc is F1-flavoured enough to pass the relevance
+# gate, and the model then recited Jim Clark's bio / RB's 2024 line-up at
+# them — while the persona path has trained answers for exactly these
+# (measured 2026-10-11).
+_PERSONA_ASK = re.compile(
+    r"\byour (own )?(favou?rite|opinion|take|pick)\b"
+    r"|\b(what|how) do you (think|feel|reckon)\b|\bdo you (think|like|prefer|rate)\b"
+    r"|\bin your opinion\b"
+    r"|\b(where|how) (do|should|can) i (start|begin|get (into|started))\b", re.I)
 
 
 def _is_conversational(query: str) -> bool:
@@ -123,6 +155,9 @@ def _is_conversational(query: str) -> bool:
     # A statement without a real question rides the persona path even when it
     # names an entity ("...is Fernando Alonso, ok?" must not fetch docs).
     if _USER_STATEMENT.search(q) and not _INTERROGATIVE.search(q):
+        return True
+    # An opinion about a NAMED driver or a dated race still gets its facts.
+    if _PERSONA_ASK.search(q) and not (_PIN_YEAR.search(q) or _NAME_CUE.search(q)):
         return True
     return not (_F1_KEYWORDS.search(q) or _NAME_CUE.search(q))
 
@@ -255,6 +290,49 @@ def _pin(query: str, results: list[dict]) -> list[dict]:
     return results
 
 
+# A curated doc that states HOW MANY titles its driver won ("...won seven
+# Formula 1 World Drivers' Championships", "won the 2016 World Championship").
+# Verstappen's "multiple-time World Champion" does not count — it would be a
+# worse answer than his season docs.
+_TITLES_COUNTED = re.compile(
+    r"\b(?:one|two|three|four|five|six|seven|\d+)\b[^.;]*\b(?:championships?|titles?)\b"
+    r"|\bwon the (?:19|20)\d\d world championship\b", re.I)
+
+
+def _titles_summary(query: str, docs: list[dict]) -> dict | None:
+    """The curated doc that opens with a driver named in ``query`` and sums up
+    their titles, if there is one.
+
+    For a "when" question the summary must also DATE the titles — name the
+    first and the last title season on record. Otherwise the season docs
+    answer better: Hamilton's summary says "seven" but not which years, and
+    the only year in Lauda's is his 1976 crash, which was not a title year.
+    """
+    names = tuple(_fold(n) for n in _PIN_NAME.findall(query))
+    if not names:
+        return None
+    wants_years = re.search(r"\b(when|(which|what) years?)\b", query, re.I)
+    for doc in docs:
+        if doc.get("source") != "curated":
+            continue
+        text = _fold(doc.get("text", ""))
+        if not (text.startswith(names) and _TITLES_COUNTED.search(text)):
+            continue
+        if wants_years:
+            name = next(n for n in names if text.startswith(n))
+            seasons = sorted(
+                m.group(1)
+                for m in (re.match(r"in (\d{4}),", _fold(d.get("text", "")))
+                          for d in docs
+                          if d.get("source", "").endswith("_champion")
+                          and name in _fold(d.get("text", "")))
+                if m)
+            if not seasons or seasons[0] not in text or seasons[-1] not in text:
+                return None
+        return doc
+    return None
+
+
 def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     """Return the top-k relevant fact documents (empty if no index).
 
@@ -268,6 +346,17 @@ def retrieve_facts(query: str, k: int = 4) -> list[dict]:
     if not retriever:
         return []
     sources = _route(query)
+    # A year-less title question about a named driver ("How many titles did
+    # Lewis Hamilton win?", "when did he win his championship") asks for ONE
+    # fact, but the champion docs hold it a season per doc and only k of them
+    # reach the prompt — four of Hamilton's seven. Measured 2026-10-11: "the
+    # 2017, 2019 and 2017 World Champion", and for Vettel a ramble naming
+    # neither driver nor year. Where a curated doc sums the titles up, that
+    # single fact is the context. (Benchmark title questions all carry a year.)
+    if sources and "kaggle_champion" in sources and not _PIN_YEAR.search(query):
+        summary = _titles_summary(query, retriever.docs)
+        if summary:
+            return [summary]
     results = retriever.retrieve(query, k=k, sources=sources)
     if not results and sources:
         results = retriever.retrieve(query, k=k)   # routed miss -> open fallback
