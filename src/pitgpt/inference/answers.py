@@ -200,6 +200,11 @@ def plan(question: str, facts: list[dict], intent: str | None = None) -> Plan:
             # bio lists title seasons): the reply is computed, not generated.
             return Plan(question, facts, _compare(a, b, question), kind="compare",
                         settled=True)
+    if len(facts) == 2 and intent == "either":
+        # A preference between two circuits or two teams: the notes do not
+        # hold one, so what they say of each is the whole reply.
+        return Plan(question, facts, "\n\n".join(f["text"] for f in facts), kind="either",
+                    settled=True)
     if len(facts) == 1 and facts[0].get("source") == "computed":
         # A count made over the records (rag/stats.py) is its own answer.
         return Plan(question, facts, facts[0]["text"], kind="stat", settled=True)

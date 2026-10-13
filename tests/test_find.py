@@ -321,3 +321,37 @@ def test_a_race_the_records_have_not_reached_is_not_yet(found):
     # a past one that was never held is still "wasn't held"
     assert "wasn't held in 2007" in R.find(
         "Who won the 2007 Singapore Grand Prix?").facts[0]["reply"]
+
+
+def test_an_opinion_about_a_team_or_circuit_gets_its_note(found):
+    """"do you like Ferrari?" was searched, came back with a 2001 title, a
+    car number and the Silverstone note, and the reply to that mix was
+    declined as "not in my notes" (measured 2026-10-13)."""
+    for question, opens in (("do you like Ferrari?", "Ferrari (Scuderia Ferrari)"),
+                            ("I think Monaco is boring", "The Monaco Grand Prix"),
+                            ("Is Monaco overrated?", "The Monaco Grand Prix"),
+                            ("do you like Monza?", "Monza in Italy"),
+                            ("What's your take on McLaren?", "McLaren is one of"),
+                            ("Do you think Red Bull are the best team?", "Red Bull Racing"),
+                            ("Mercedes are boring", "Mercedes dominated")):
+        texts = _texts(question)
+        assert len(texts) == 1 and texts[0].startswith(opens), question
+    # a preference between two: what the notes say of each, and no verdict
+    either = R.find("Do you prefer Silverstone or Suzuka?")
+    assert either.intent == "either" and len(either.facts) == 2
+    assert {t.split()[0] for t in _texts("Is Ferrari better than McLaren?")} == {"Ferrari",
+                                                                                 "McLaren"}
+
+
+def test_the_note_about_the_thing_named_stands_alone(found):
+    """"I hate sprint races" found the sprint note behind the race-weekend
+    and race-distance notes; the reply to all three was declined."""
+    weekend = {"text": "A Formula 1 race weekend usually consists of practice sessions.",
+               "source": "curated"}
+    sprint = {"text": "A sprint is a shorter ~100 km Saturday race.", "source": "curated"}
+    distance = {"text": "F1 race distance is the fewest laps exceeding 305 km.",
+                "source": "curated"}
+    found[:] = [weekend, sprint, distance]
+    assert _texts("I hate sprint races") == [sprint["text"]]
+    assert _texts("What are sprint races?") == [sprint["text"]]
+    assert len(_texts("How long is an F1 race?")) == 3       # names none of them

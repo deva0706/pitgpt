@@ -26,7 +26,7 @@
 > Measured on the final code (`*_oct11_pipeline`, `*_oct11_checked`,
 > `*_oct11_model`): retrieval 100% hit / 100% clean / 1.0 docs; facts **100%
 > shown** (model's own wording 89/90, shown as written 76/90); grounding **86%
-> shown, 0 hallucinations** against 73% / 13.3% for the model alone. 166 tests
+> shown, 0 hallucinations** against 73% / 13.3% for the model alone. 168 tests
 > (was 67). All 36 original turns and about 60 further questions re-checked in
 > the browser.
 >

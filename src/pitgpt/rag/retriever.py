@@ -219,6 +219,22 @@ _PERSONA_ASK = re.compile(
     r"|\b(where|how) (do|should|can) i (start|begin|get (into|started))\b", re.I)
 
 
+# An opinion, asked for or offered. About a team or a circuit it was searched
+# like any question, came back with whatever shared the name — "do you like
+# Ferrari?" found the 2001 constructors' title, Leclerc's car number and the
+# Silverstone note ahead of the Ferrari one — and the model's reply to that
+# mix was thrown out by the check: seven of 22 opinion questions were declined
+# as "not in my notes" (measured 2026-10-13). What the notes say about the
+# subject is the honest reply to an opinion about it (see ``_pick``).
+_OPINION_CUE = re.compile(
+    _PERSONA_ASK.pattern
+    + r"|\bi (?:(?:also|really|just|still|truly|totally|absolutely|definitely) )?"
+      r"(?:think|love|hate|like|find|reckon|feel|rate)\b"
+      r"|\b(?:is|are|was|were|isn't|aren't)\b.*\b(?:boring|overrated|underrated|exciting|"
+      r"any good|great|the best|the greatest|dull|fun|rubbish|terrible|amazing)\b", re.I)
+_EITHER_OR = re.compile(r"\b(?:or|vs\.?|versus|than)\b", re.I)
+
+
 def _names_entity(query: str) -> bool:
     """A proper name, or anyone or anything the corpus knows by name."""
     if _NAME_CUE.search(query):
@@ -706,14 +722,28 @@ def _pick(question: str, intent: str | None, entities: EntityIndex,
         return None
     # --- a circuit or a team asked about by name ("Tell me about Spa",
     #     or just "And Spa?") ---
-    if circuit and (intent in ("circuit", "driver")
+    #     or given an opinion on: "do you like Ferrari?", "Monaco is boring") ---
+    if intent is None and _EITHER_OR.search(question) and (_OPINION_CUE.search(question)
+                                        or _COMPARE_CUE.search(question)):
+        # "Do you prefer Silverstone or Suzuka?": what the notes say of each.
+        # Which is better is not in them, and the model's own comparison of
+        # the two was nonsense ("one race per season compared to
+        # Silverstone's every other weekend").
+        for at, fallback in ((entities.circuit_at, entities.circuit_doc),
+                             (entities.team_at, entities.lineup)):
+            notes = [entities.curated_about(n) or fallback(n) for n in _both(at, question)]
+            if len(notes) == 2 and all(notes):
+                return "either", notes
+    opinion = (bool(_OPINION_CUE.search(question)) and not (team and circuit)
+               and not _EITHER_OR.search(question))
+    if circuit and (intent in ("circuit", "driver") or opinion
                     or _nothing_but(question, entities.circuit_at(question))):
         note = entities.curated_about(circuit)
         where = re.search(r"\bwhere\b", question, re.I)
         doc = entities.circuit_doc(circuit) if (where or not note) else note
         if doc:
             return "circuit", [doc]
-    if team and not circuit and (intent == "driver"
+    if team and not circuit and (intent == "driver" or opinion
                                  or _nothing_but(question, entities.team_at(question))):
         doc = entities.curated_about(team) or entities.lineup(team)
         if doc:
@@ -728,6 +758,20 @@ def _nothing_but(question: str, span: tuple[int, int, str]) -> bool:
     """Is the name at ``span`` all there is to ``question`` ("And Spa?")?"""
     rest = question[:span[0]] + " " + question[span[1]:]
     return not re.sub(r"[\W_]+", "", _LEAD_IN.sub(" ", rest))
+
+
+_NOTE_SUBJECT = re.compile(r"(?:(?:A|An|The) )?([A-Za-z0-9]+)")
+_GENERIC_SUBJECT = frozenset(
+    "formula f1 race races grand driver drivers team teams car cars in a an the".split())
+
+
+def _both(at, question: str) -> list[str]:
+    """The two circuits (or teams) ``question`` names, if it names two."""
+    first = at(question)
+    if not first:
+        return []
+    second = at(question[:first[0]] + " " * (first[1] - first[0]) + question[first[1]:])
+    return [first[2], second[2]] if second and second[2] != first[2] else []
 
 
 def _focus(question: str, results: list[dict], entities: EntityIndex) -> list[dict]:
@@ -754,6 +798,17 @@ def _focus(question: str, results: list[dict], entities: EntityIndex) -> list[di
         note = entities.curated_about(name) if name else None
         if note and top["text"] == note["text"]:
             return results[:1]
+    # The one note that is ABOUT a thing the question names: "I hate sprint
+    # races" and "What are sprint races?" both found "A sprint is a shorter
+    # ~100 km Saturday race..." behind the race-weekend and race-distance
+    # notes, and the reply to all three was declined (measured 2026-10-13).
+    asked = {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", question.lower())}
+    about = [d for d in results if d.get("source") == "curated"
+             and (m := _NOTE_SUBJECT.match(d["text"]))
+             and m.group(1).lower() not in _GENERIC_SUBJECT
+             and m.group(1).lower().rstrip("s") in asked]
+    if len(about) == 1:
+        return about
     if top.get("source") == "curated" and "dense" in top:
         nearest = max(d.get("dense", 0.0) for d in results)
         wordiest = max(d.get("bm25", 0.0) for d in results)
