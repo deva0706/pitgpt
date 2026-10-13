@@ -86,7 +86,9 @@ def describe_turn(message: str, shown: str, trace: dict, seconds: float = 0.0) -
     the model wrote, what the check made of it, and what was shown."""
     plan = trace.get("plan")
     if trace.get("reply") is not None:
-        path = "decided without the model"
+        path = "computed from the fact, no model" if plan else "decided without the model"
+    elif plan is not None and trace.get("asked") and trace.get("raw") is None:
+        path = "grounded, reused the checked answer to the same question (no model)"
     elif plan is not None:
         path = "grounded" + (", trained format" if plan.strict else "")
     else:
@@ -98,6 +100,7 @@ def describe_turn(message: str, shown: str, trace: dict, seconds: float = 0.0) -
         "kind": plan.kind if plan else None,
         "facts": [f"[{f.get('source', '?')}] {f.get('text', '')}" for f in plan.facts]
                  if plan else [],
+        "said_first": plan.lead if plan else "",
         "asked_model": trace.get("asked"),
         "model_wrote": trace.get("raw"),
         "check": trace.get("verdict"),
@@ -117,6 +120,8 @@ def record_turn(message: str, shown: str, trace: dict, seconds: float = 0.0) -> 
     lines = [f"TURN  {turn['typed']!r}  ->  {turn['path']}"
              + (f" [{turn['kind']}]" if turn["kind"] else "")]
     lines += [f"  fact         {fact}" for fact in turn["facts"]]
+    if turn["said_first"]:
+        lines.append(f"  said first   {turn['said_first']}")
     if turn["asked_model"] and turn["asked_model"] != turn["typed"]:
         lines.append(f"  asked model  {turn['asked_model']}")
     if turn["model_wrote"] is not None:

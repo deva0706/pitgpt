@@ -62,6 +62,7 @@ class Plan:
     kind: str = "open"
     must_name: tuple[str, ...] = ()   # names a faithful reply cannot leave out
     settled: bool = False             # ``reply`` is the answer: nothing to generate
+    lead: str = ""                    # said first: the detail asked for, from the fact
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +161,35 @@ def render(fact: dict, intent: str | None = None) -> str:
 # The plan for a turn
 # --------------------------------------------------------------------------- #
 
+# The model is only ever asked who won, so its recap opens with the winner
+# whatever was asked: "who was on pole there?" got "Max Verstappen got the
+# chequered flag ..." with the pole sitter three sentences in (measured
+# 2026-10-13). The detail asked for is read off the record and said first.
+_POLE_CUE = re.compile(r"\bpole\b|\bqualif", re.I)
+_SECOND_CUE = re.compile(
+    r"\b(?:finish(?:ed)?|came|come|was|placed?) (?:in )?(?:second|2nd)\b"
+    r"|\b(?:second|2nd) place\b|\brunner[- ]up\b|\bP2\b", re.I)
+_THIRD_CUE = re.compile(
+    r"\b(?:finish(?:ed)?|came|come|was|placed?) (?:in )?(?:third|3rd)\b"
+    r"|\b(?:third|3rd) place\b|\bP3\b", re.I)
+_VENUE_CUE = re.compile(r"\bwhere\b|\b(?:which|what) (?:circuit|track|venue)\b", re.I)
+
+
+def _race_lead(question: str, race) -> str:
+    """The sentence that answers what ``question`` asks of ``race`` when that
+    is not its winner; "" when the recap already opens with the answer."""
+    event = f"the {race.year} {race.gp}"
+    if _POLE_CUE.search(question) and race.pole:
+        return f"Pole position at {event} went to {race.pole}."
+    if _SECOND_CUE.search(question) and race.podium:
+        return f"{race.podium[0]} finished second at {event}."
+    if _THIRD_CUE.search(question) and len(race.podium) > 1:
+        return f"{race.podium[1]} finished third at {event}."
+    if _VENUE_CUE.search(question) and race.venue:
+        return f"{event[0].upper()}{event[1:]} was held at {race.venue}."
+    return ""
+
+
 def plan(question: str, facts: list[dict], intent: str | None = None) -> Plan:
     """How to answer ``question`` from ``facts`` (see module docstring)."""
     if len(facts) == 2 and intent == "compare":
@@ -198,7 +228,8 @@ def plan(question: str, facts: list[dict], intent: str | None = None) -> Plan:
     if race:
         # The shipped adapter was trained on winner questions only; "Tell me
         # about ..." and "Who was on the podium ..." shift every name by one.
-        return Plan(f"Who won the {race.year} {race.gp}?", facts, reply, strict=True, kind="race")
+        return Plan(f"Who won the {race.year} {race.gp}?", facts, reply, strict=True, kind="race",
+                    lead=_race_lead(question, race))
     title = parse_champion(text)
     if title:
         return Plan(f"Who won the {title.year} Formula 1 World Championship?", facts, reply,

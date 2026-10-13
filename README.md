@@ -97,7 +97,7 @@ resource: each phase ships teaching notes and Q&A.
 - 💬 **Streaming Gradio chat** with chat memory: follow-ups are resolved before
   retrieval (*"What teams did he race for?"*, *"Who won it in 2009?"*, *"And in
   2007?"*), and a deterministic "radio log" quotes back what you told it.
-- 🧩 **Modular `src/` package**, single config source of truth, 161 tests,
+- 🧩 **Modular `src/` package**, single config source of truth, 164 tests,
   phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture

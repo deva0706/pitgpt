@@ -64,6 +64,28 @@ def test_a_race_fact_is_asked_the_way_the_adapter_was_trained():
         assert plan.reply == RECAP and plan.strict
 
 
+def test_the_detail_asked_about_a_race_is_said_before_the_recap():
+    """"who was on pole there?" was answered with a recap that opens with the
+    winner; the pole sitter was three sentences in."""
+    lead = {
+        "Who was on pole at the 2008 Singapore Grand Prix?":
+            "Pole position at the 2008 Singapore Grand Prix went to Felipe Massa.",
+        "Who finished second in the 2008 Singapore Grand Prix?":
+            "Nico Rosberg finished second at the 2008 Singapore Grand Prix.",
+        "Who came third at the 2008 Singapore Grand Prix?":
+            "Lewis Hamilton finished third at the 2008 Singapore Grand Prix.",
+        "Where was the 2008 Singapore Grand Prix held?":
+            "The 2008 Singapore Grand Prix was held at Marina Bay Street Circuit in "
+            "Marina Bay, Singapore.",
+        "Who won the 2008 Singapore Grand Prix?": "",
+        "Tell me about the 2008 Singapore Grand Prix.": "",
+    }
+    for question, expected in lead.items():
+        plan = A.plan(question, [RACE], "race")
+        assert plan.lead == expected
+        assert plan.ask == "Who won the 2008 Singapore Grand Prix?"
+
+
 def test_season_title_facts():
     plan = A.plan("Which driver took the title in 2016?", [CHAMPION], "titles")
     assert plan.ask == "Who won the 2016 Formula 1 World Championship?"

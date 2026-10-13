@@ -394,7 +394,9 @@ def _prepare(user_prompt, history: list[Message] | None, use_rag: bool = True) -
     if found.facts:
         plan = answers.plan(found.question, found.facts, found.intent)
         if plan.settled:
-            return _Turn(reply=prefix + plan.reply)
+            return _Turn(reply=prefix + plan.reply, plan=plan)
+        if plan.lead:
+            prefix += plan.lead + " "
         return _Turn(prefix=prefix, context=recall, plan=plan)
     if recall:
         return _Turn(prefix=prefix, question=question, context=recall)

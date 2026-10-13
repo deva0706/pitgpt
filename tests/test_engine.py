@@ -202,7 +202,7 @@ def test_a_wrong_recap_never_reaches_the_screen(found, monkeypatch):
     assert trace["verdict"] != "kept"
     assert seen["pieces"] == 1 and seen["stopped"]      # not waited for
     assert E.generate_reply(None, None, "Who finished second in the 2008 Singapore Grand Prix?"
-                            ) == RECAP
+                            ) == f"Nico Rosberg finished second at the 2008 Singapore Grand Prix. {RECAP}"
 
 
 def test_the_same_recap_is_not_generated_twice(found, monkeypatch):
@@ -210,7 +210,8 @@ def test_the_same_recap_is_not_generated_twice(found, monkeypatch):
     history = _chat(("Who won the 2008 Singapore Grand Prix?", RECAP))
     first = list(E.stream_reply(None, None, "Who won the 2008 Singapore Grand Prix?"))[-1]
     again = list(E.stream_reply(None, None, "Who was on pole?", history))
-    assert again == [first] and seen["calls"] == 1
+    pole = "Pole position at the 2008 Singapore Grand Prix went to Felipe Massa. "
+    assert again == [pole, pole + first] and seen["calls"] == 1
 
 
 def test_a_retelling_is_shown_once_checked_and_a_garble_is_replaced(found, monkeypatch):
@@ -288,3 +289,22 @@ def test_a_turn_is_recorded_with_what_was_found_written_and_shown(found, monkeyp
     shown = list(E.stream_reply(None, None, "When is the next race?", trace=trace))[-1]
     turn = M.describe_turn("When is the next race?", shown, trace)
     assert turn["path"] == "decided without the model" and turn["model_wrote"] is None
+
+
+def test_the_log_says_when_an_answer_was_reused(found, monkeypatch):
+    """A follow-up on the same race was logged as "grounded, trained format"
+    with nothing from the model: the recap had been reused, and the log did
+    not say so. What it leads with is the detail that was asked."""
+    from pitgpt.app import model_service as M
+
+    _model_says(monkeypatch, RECAP)
+    E._checked.clear()
+    list(E.stream_reply(None, None, "Who won the 2008 Singapore Grand Prix?"))
+    trace: dict = {}
+    question = "Who was on pole at the 2008 Singapore Grand Prix?"
+    shown = list(E.stream_reply(None, None, question, trace=trace))[-1]
+    said_first = "Pole position at the 2008 Singapore Grand Prix went to Felipe Massa."
+    assert shown == f"{said_first} {RECAP}"
+    turn = M.describe_turn(question, shown, trace)
+    assert "reused" in turn["path"] and turn["model_wrote"] is None
+    assert turn["said_first"] == said_first
