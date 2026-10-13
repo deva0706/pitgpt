@@ -115,7 +115,7 @@ def test_an_f1_question_with_no_facts_is_declined_not_improvised(found):
 
 
 def test_small_talk_goes_to_the_persona(found):
-    for q in ("Hi!", "thanks!", "I'm new to F1, where do I start?",
+    for q in ("I love F1", "I'm new to F1, where do I start?",
               "My favourite driver is Fernando Alonso.", "What is the capital of France?"):
         turn = E._prepare(q, None)
         assert turn.reply is None and turn.plan is None and turn.question == q, q
@@ -164,6 +164,43 @@ def test_chat_ends_on_a_whole_sentence():
     assert E._tidy_chat("Ha! Love that.") == "Ha! Love that."
 
 
+def test_a_social_turn_is_not_for_the_model(found, monkeypatch):
+    """"hi" got a paragraph on qualifying and "thanks!" one on "the art of
+    leading when nobody else will": the adapter has no reply to these."""
+    seen = _model_says(monkeypatch, "Ah, qualifying — proper for a fanboy!")
+    kinds = {
+        "greeting": ("hi", "Hello there!", "good morning"),
+        "how": ("hey, how are you?", "what's up?", "how's your day going"),
+        "thanks": ("thanks!", "thank you so much", "ok thanks", "cool, cheers mate"),
+        "bye": ("bye", "thanks, good night"),
+        "praise": ("you're awesome",),
+        "nod": ("ok cool", "lol", "wow", "nice"),
+        "wrong": ("that was wrong",),
+        "sure": ("are you sure?",),
+        "maker": ("who made you?",),
+    }
+    replies = {kind: {E.generate_reply(None, None, said) for said in says}
+               for kind, says in kinds.items()}
+    assert all(len(r) == 1 for r in replies.values())       # one reply per kind...
+    assert len({next(iter(r)) for r in replies.values()}) == len(kinds)   # ...each its own
+    assert seen["calls"] == 0
+    for said in ("ok, who won the 2008 Singapore Grand Prix?", "Hamilton", "why?",
+                 "thanks for the Monaco recap, what about Monza?", "tell me a joke"):
+        assert E._social(said) is None
+
+
+def test_chat_stops_after_two_sentences(found, monkeypatch):
+    """"tell me a joke" told one, then explained tyre management and offered
+    a qualifying primer."""
+    joke = "Why did the tyre go to therapy? Because it was feeling flat!"
+    seen = _model_says(monkeypatch, joke + " That's why managing tyres is such a careful "
+                       "art. It's detail in disguise. Want the quick version?")
+    assert list(E.stream_reply(None, None, "tell me a joke"))[-1] == joke
+    assert seen["stopped"]                                   # the rest was not waited for
+    assert E._tidy_chat("Honestly? That's a great pick. He is endlessly watchable. And more."
+                        ) == "Honestly? That's a great pick. He is endlessly watchable."
+
+
 def test_chat_states_no_figures():
     said = ("Ah, this one gets the group chat going every time! It came back to this three "
             "times between 1993 and 1997. Elegance and drama side-by-side.")
@@ -174,7 +211,7 @@ def test_chat_states_no_figures():
 def test_chat_is_streamed_a_whole_sentence_at_a_time(found, monkeypatch):
     said = "Always — this is my happy place! No agenda, no wrong questions. Are you here for"
     _model_says(monkeypatch, said)
-    shown = list(E.stream_reply(None, None, "Hi!"))
+    shown = list(E.stream_reply(None, None, "I love F1"))
     assert shown == ["Always — this is my happy place!",
                      "Always — this is my happy place! No agenda, no wrong questions."]
 

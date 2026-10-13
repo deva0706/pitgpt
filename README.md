@@ -97,7 +97,7 @@ resource: each phase ships teaching notes and Q&A.
 - 💬 **Streaming Gradio chat** with chat memory: follow-ups are resolved before
   retrieval (*"What teams did he race for?"*, *"Who won it in 2009?"*, *"And in
   2007?"*), and a deterministic "radio log" quotes back what you told it.
-- 🧩 **Modular `src/` package**, single config source of truth, 164 tests,
+- 🧩 **Modular `src/` package**, single config source of truth, 166 tests,
   phase-by-phase teaching docs with interview Q&A.
 
 ## Architecture
@@ -441,8 +441,10 @@ regressed elsewhere and was rolled back. Every report is committed under
   questions would turn "typed a hundred into the app" into a score.
 - **Train the shapes the pipeline now works around**: race questions beyond
   "who won", standings, and comparisons — so fewer replies need replacing.
-- Small talk is free generation from a 1B model and still rambles; it is capped
-  at 80 tokens and sentences stating figures are dropped, nothing more.
+- Small talk is the weakest path. Greetings, thanks and the like get fixed
+  replies (the adapter has none of its own and wrote essays at them); other
+  free chat is cut to two sentences with no figures. What is left is short,
+  not good: "Who is your favourite driver?" gets a one-line dodge.
 - The next adapter: retrain on the HEAD dataset with real GP↔circuit pairs
   (the v5 lesson), so the model can recite the absence fact itself.
 - Alias normalization in scoring and corpus (Lotus/Team Lotus/Lotus F1).

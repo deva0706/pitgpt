@@ -26,7 +26,7 @@
 > Measured on the final code (`*_oct11_pipeline`, `*_oct11_checked`,
 > `*_oct11_model`): retrieval 100% hit / 100% clean / 1.0 docs; facts **100%
 > shown** (model's own wording 89/90, shown as written 76/90); grounding **86%
-> shown, 0 hallucinations** against 73% / 13.3% for the model alone. 164 tests
+> shown, 0 hallucinations** against 73% / 13.3% for the model alone. 166 tests
 > (was 67). All 36 original turns and about 60 further questions re-checked in
 > the browser.
 >
@@ -34,7 +34,8 @@
 > a garbled retelling of a note can pass; with the check on, the benchmark's
 > synthesis category is 0% (comparisons it cannot verify are declined);
 > bare fragments like "by how many points?" are not resolved; small talk
-> still rambles; many concept answers are the curated note read back; the
+> rambled (since Oct 13: fixed replies to social turns, free chat cut to two
+> sentences); many concept answers are the curated note read back; the
 > pattern rules that pick facts will have misfires of their own; standings
 > are as of the last `build_rag.py --refresh`.
 

@@ -331,6 +331,74 @@ def _about_me() -> str:
             f"{span} something isn't in them I'll say so rather than guess.")
 
 
+# The adapter has no trained reply to a social turn — a greeting, thanks, "ok
+# cool" — and writes a persona essay at it instead. Measured 2026-10-13 on 29
+# such messages: "hi" got a paragraph on qualifying, "thanks!" one on "the art
+# of leading when nobody else will", "who made you?" one on races being
+# chapters of a book. Like what the app is, these are not for the model to
+# improvise.
+_SOCIAL: tuple[tuple[re.Pattern, str], ...] = tuple((re.compile(p), reply) for p, reply in (
+    (r"hi+|hey+|hello|hiya|yo|howdy|greetings|good (?:morning|afternoon|evening|day)",
+     "Hey! PitGPT on the radio. Ask me about a race, a driver, a team, or how "
+     "something in Formula 1 works."),
+    (r"how are (?:you|u|ya)(?: doing)?|how(?:'s| is) it going|how are things|what'?s up|sup"
+     r"|how(?:'s| is) your day(?: going)?|how do you do|you (?:ok|okay|good|alright)",
+     "All systems green, thanks for asking! What shall we dig into — a race, a driver, "
+     "a rule?"),
+    (r"thanks?(?: you)?(?: so much| very much| a lot| a ton)?|thx|ty|cheers|much appreciated"
+     r"|appreciate it",
+     "Anytime — that's what the pit wall is for. Radio in when you've got another one."),
+    (r"bye+|goodbye|good ?night|see (?:you|ya)(?: later| soon)?|cya|later|take care|gotta go",
+     "Copy that — see you at the next lights out!"),
+    (r"(?:you'?re|you are|ur|that'?s|that is|that was) (?:so |really |very )?"
+     r"(?:awesome|great|the best|amazing|good|cool|brilliant|helpful|smart)"
+     r"|good (?:bot|job|one)|well done|nice one|love (?:it|you|this)",
+     "Cheers, appreciated! Got another one for me?"),
+    (r"(?:i'?m |i am )?sorry|my bad|apologies|oops",
+     "No harm done. What do you want to look at?"),
+    (r"(?:that'?s|that is|that was|this is|you'?re|you are|it'?s) "
+     r"(?:wrong|incorrect|not right|not true|not correct|false)|wrong|incorrect|nope",
+     "Understood. I only say what my notes hold, and they can be wrong or out of date. "
+     "Give me the race, driver or season and I'll read you the record itself."),
+    (r"(?:are you|you) sure|really|seriously|is that (?:right|true|correct)",
+     "Every answer is checked against my notes before I show it, but the notes "
+     "themselves can be out of date. Ask again with the race, driver or year and I'll "
+     "read out the record."),
+    (r"who (?:made|built|created|trained|designed|developed|wrote) (?:you|u|this)",
+     "I'm PitGPT — a small open model (Gemma) fine-tuned on Formula 1 and paired with a "
+     "file of notes, built as a portfolio project and running entirely on this machine."),
+    (r"ok(?:ay)?|k|cool|nice|great|wow|lol|lmao|ha(?:ha)+|awesome|got it|i see|alright"
+     r"|right|interesting|good|perfect|fair enough|makes sense|sure|yes|yeah|yep|no|hmm+",
+     "Copy! Anything else you want checked?"),
+))
+_SOCIAL_TAIL = re.compile(r"\s+(?:there|pitgpt|mate|buddy|man|bro|pal|my friend|again|then|"
+                          r"today|everyone|all)$")
+
+
+def _social(text: str) -> str | None:
+    """The reply to a message that is social and nothing else, or None.
+
+    Every part of the message has to be social — "ok, who won in 2008?" is a
+    question — and the last part decides the reply: "hey, how are you?" is
+    asked how it is, "ok thanks" is thanked."""
+    parts = [re.sub(r"[^\w' ]", " ", p).strip() for p in
+             re.split(r"[,.!?;:…—–]+|\band\b", text.lower().replace("’", "'"))]
+    parts = [" ".join(p.split()) for p in parts if p.strip()]
+    if not parts or len(parts) > 3:
+        return None
+    reply = None
+    for part in parts:
+        words = part.split()
+        # "ok thanks", "oh wow": each word, or the phrase, has to be social.
+        candidates = [_SOCIAL_TAIL.sub("", part)] + (words if 1 < len(words) <= 3 else [])
+        found = [r for c in candidates for pattern, r in _SOCIAL if pattern.fullmatch(c)]
+        whole = any(pattern.fullmatch(candidates[0]) for pattern, _ in _SOCIAL)
+        if not whole and len(found) < len(words):
+            return None
+        reply = found[0] if whole else found[-1]
+    return reply
+
+
 @dataclass
 class _Turn:
     """What one user message needs."""
@@ -366,6 +434,9 @@ def _prepare(user_prompt, history: list[Message] | None, use_rag: bool = True) -
         if rewritten is None:
             return _Turn(reply=prefix)
         user_prompt = rewritten
+    social = _social(user_prompt)
+    if social is not None:
+        return _Turn(reply=social)
     if not use_rag:
         return _Turn(prefix=prefix, question=user_prompt, history=history)
 
@@ -450,18 +521,37 @@ _SENTENCES = re.compile(r".+?(?:[.!?…]+[\"'”’)\]]*(?=\s|$)|$)", re.S)
 _FIGURE = re.compile(r"\d")
 
 
-def _tidy_chat(text: str, done: bool = True) -> str:
-    """Free-chat text fit to show: whole sentences only, none with a figure.
+# ...and it may not run on. The first two sentences of a persona reply answer
+# what was asked; from the third it drifts to whatever it likes talking about
+# ("tell me a joke" told one, then explained tyre management and offered a
+# qualifying primer — measured 2026-10-13).
+_CHAT_SENTENCES = 2
 
-    The token budget ends chat replies mid-sentence ("...Do you prefer");
-    ``done=False`` (still streaming) holds the sentence in progress back.
-    """
+
+def _chat_sentences(text: str, done: bool) -> tuple[list[str], bool]:
+    """The sentences of free-chat ``text`` that are fit to show, and whether
+    that is all there will be (so generation can stop)."""
     sentences = [s.strip() for s in _SENTENCES.findall(text.strip()) if s.strip()]
     if sentences and not re.search(r"[.!?…][\"'”’)\]]*$", sentences[-1]):
         if not done or len(sentences) > 1:
             sentences.pop()              # unfinished
-    kept = [s for s in sentences if not _FIGURE.search(s)]
-    return " ".join(kept or ([] if not done else sentences))
+    kept = [s for s in sentences if not _FIGURE.search(s)] or ([] if not done else sentences)
+    said = 0
+    for i, sentence in enumerate(kept):
+        said += len(sentence.split()) > 2        # "Honestly?" is not one of the two
+        if said == _CHAT_SENTENCES:
+            return kept[:i + 1], True
+    return kept, False
+
+
+def _tidy_chat(text: str, done: bool = True) -> str:
+    """Free-chat text fit to show: whole sentences only, none with a figure,
+    and no more than two of them.
+
+    The token budget ends chat replies mid-sentence ("...Do you prefer");
+    ``done=False`` (still streaming) holds the sentence in progress back.
+    """
+    return " ".join(_chat_sentences(text, done)[0])
 
 
 # A checked grounded reply is a function of the question put to the model
@@ -644,8 +734,16 @@ def stream_reply(
     try:
         for piece in pieces:
             raw += piece
-            if plan is None:
-                text = raw if grounding else _tidy_chat(raw, done=False)
+            if plan is None and not grounding:
+                said, complete = _chat_sentences(raw, done=False)
+                text = " ".join(said)
+                if complete:                  # the rest would not be shown
+                    if text != shown:
+                        shown = text
+                        yield turn.prefix + shown
+                    break
+            elif plan is None:
+                text = raw
             elif answers.hopeless(raw, plan) or answers.declined(raw, plan):
                 # Nothing it goes on to write will be shown — it can no
                 # longer pass the check, or it has declined and that is the
